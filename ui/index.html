@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PRISM</title>
+  <link href="styles.css" rel="stylesheet">
+  <link href="node_modules/animate.css/animate.min.css" rel="stylesheet">
+</head>
+<body>
+  <!-- Animated Orb (Siri-like) -->
+  <div id="orb-container">
+    <div id="orb" class="orb-idle">
+      <div class="orb-inner"></div>
+      <div class="orb-glow"></div>
+      <canvas id="waveform"></canvas>
+    </div>
+  </div>
+
+  <!-- Expandable Panel -->
+  <div id="panel" class="glass-panel hidden animate__animated">
+    <div class="panel-header">
+      <div class="prism-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+          <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+          <circle cx="12" cy="12" r="3" fill="currentColor"/>
+        </svg>
+      </div>
+      <h2>PRISM</h2>
+      <button id="close-panel" class="close-btn">×</button>
+    </div>
+    
+    <div class="panel-content">
+      <div id="user-query" class="query-text"></div>
+      <div id="response" class="response-text">
+        <div class="typing-indicator hidden">
+          <span></span>
+          <span></span>
+          <span></span>
+        </div>
+        <p id="response-content">Listening for "PRISM"...</p>
+      </div>
+    </div>
+
+    <div class="panel-footer">
+      <div class="status-indicator">
+        <span class="status-dot"></span>
+        <span id="status-text">Ready</span>
+      </div>
+      <div class="input-row">
+        <input id="text-input" type="text" placeholder="Type a command or question..." />
+        <button id="send-btn">Send</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- System Tray Indicator -->
+  <div id="tray-indicator" class="tray-indicator">
+    <div class="tray-pulse"></div>
+  </div>
+
+  <!-- Settings Button (floating) -->
+  <button id="settings-btn" class="settings-btn">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
+      <path d="M12 1v6m0 6v10M1 12h6m6 0h10" stroke="currentColor" stroke-width="2"/>
+    </svg>
+  </button>
+
+  <script src="renderer.js"></script>
+</body>
+</html>
