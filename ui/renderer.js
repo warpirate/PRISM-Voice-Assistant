@@ -1,244 +1,471 @@
-// Renderer process for PRISM UI
+/**
+ * PRISM Renderer Process
+ * Handles UI interactions, animations, and communication with main process
+ */
+
 const { ipcRenderer } = require('electron');
 
-// DOM Elements
-const orb = document.getElementById('orb');
-const panel = document.getElementById('panel');
-const userQuery = document.getElementById('user-query');
-const responseContent = document.getElementById('response-content');
-const typingIndicator = document.querySelector('.typing-indicator');
-const statusText = document.getElementById('status-text');
-const closePanel = document.getElementById('close-panel');
-const settingsBtn = document.getElementById('settings-btn');
-const waveformCanvas = document.getElementById('waveform');
-const textInput = document.getElementById('text-input');
-const sendBtn = document.getElementById('send-btn');
+// ============================================================================
+// State Management
+// ============================================================================
 
-// Waveform visualization
-let waveformCtx = waveformCanvas.getContext('2d');
-let animationId;
-let waveformData = [];
-
-// Initialize canvas size
-function initWaveform() {
-  waveformCanvas.width = 120;
-  waveformCanvas.height = 120;
-}
-
-// Draw waveform animation
-function drawWaveform() {
-  waveformCtx.clearRect(0, 0, waveformCanvas.width, waveformCanvas.height);
-  
-  const centerX = waveformCanvas.width / 2;
-  const centerY = waveformCanvas.height / 2;
-  const bars = 32;
-  const radius = 40;
-  
-  for (let i = 0; i < bars; i++) {
-    const angle = (Math.PI * 2 * i) / bars;
-    const barHeight = waveformData[i] || Math.random() * 20 + 5;
-    
-    const x1 = centerX + Math.cos(angle) * radius;
-    const y1 = centerY + Math.sin(angle) * radius;
-    const x2 = centerX + Math.cos(angle) * (radius + barHeight);
-    const y2 = centerY + Math.sin(angle) * (radius + barHeight);
-    
-    waveformCtx.strokeStyle = `rgba(255, 255, 255, ${0.3 + Math.random() * 0.4})`;
-    waveformCtx.lineWidth = 2;
-    waveformCtx.beginPath();
-    waveformCtx.moveTo(x1, y1);
-    waveformCtx.lineTo(x2, y2);
-    waveformCtx.stroke();
-  }
-  
-  // Update waveform data
-  waveformData = waveformData.map(() => Math.random() * 20 + 5);
-  
-  animationId = requestAnimationFrame(drawWaveform);
-}
-
-// Start waveform animation
-function startWaveform() {
-  initWaveform();
-  drawWaveform();
-}
-
-// Stop waveform animation
-function stopWaveform() {
-  if (animationId) {
-    cancelAnimationFrame(animationId);
-    waveformCtx.clearRect(0, 0, waveformCanvas.width, waveformCanvas.height);
-  }
-}
-
-// Orb state management
-function setOrbState(state) {
-  orb.className = '';
-  
-  switch(state) {
-    case 'idle':
-      orb.classList.add('orb-idle');
-      stopWaveform();
-      break;
-    case 'listening':
-      orb.classList.add('orb-listening');
-      startWaveform();
-      break;
-    case 'speaking':
-      orb.classList.add('orb-speaking');
-      startWaveform();
-      break;
-    default:
-      orb.classList.add('orb-idle');
-      stopWaveform();
-  }
-}
-
-// Show panel with animation
-function showPanel(query = '', response = '') {
-  panel.classList.remove('hidden', 'animate__fadeOut');
-  panel.classList.add('animate__fadeIn');
-  
-  if (query) {
-    userQuery.textContent = query;
-    userQuery.style.display = 'block';
-  } else {
-    userQuery.style.display = 'none';
-  }
-  
-  if (response) {
-    typingIndicator.classList.add('hidden');
-    responseContent.textContent = response;
-  } else {
-    typingIndicator.classList.remove('hidden');
-    responseContent.textContent = '';
-  }
-}
-
-// Hide panel with animation
-function hidePanel() {
-  panel.classList.remove('animate__fadeIn');
-  panel.classList.add('animate__fadeOut');
-  
-  setTimeout(() => {
-    panel.classList.add('hidden');
-  }, 300);
-}
-
-// Update status
-function updateStatus(status, color = '#4cd964') {
-  statusText.textContent = status;
-  document.querySelector('.status-dot').style.background = color;
-}
-
-// Event Listeners
-orb.addEventListener('click', () => {
-  ipcRenderer.send('orb-clicked');
-  setOrbState('listening');
-  showPanel('', '');
-  updateStatus('Listening...', '#667eea');
-});
-
-closePanel.addEventListener('click', () => {
-  hidePanel();
-  setOrbState('idle');
-  updateStatus('Ready', '#4cd964');
-});
-
-settingsBtn.addEventListener('click', () => {
-  ipcRenderer.send('open-settings');
-});
-
-function sendTextQuery() {
-  const text = (textInput?.value || '').trim();
-  if (!text) return;
-  setOrbState('listening');
-  showPanel('', '');
-  updateStatus('Processing...', '#ffa500');
-  ipcRenderer.send('text-query', text);
-}
-
-if (sendBtn) {
-  sendBtn.addEventListener('click', () => {
-    sendTextQuery();
-  });
-}
-
-if (textInput) {
-  textInput.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      sendTextQuery();
+const AppState = {
+    currentState: 'idle',
+    isListening: false,
+    isProcessing: false,
+    conversationHistory: [],
+    settings: {
+        theme: 'dark',
+        voiceFeedback: true,
+        transparency: 85,
+        animationSpeed: 'normal'
     }
-  });
+};
+
+// ============================================================================
+// DOM Elements
+// ============================================================================
+
+const elements = {
+    // Orb
+    orb: document.getElementById('prismOrb'),
+    stateIndicator: document.getElementById('stateIndicator'),
+    waveform: document.getElementById('waveform'),
+    
+    // Messages
+    messagesContainer: document.getElementById('messagesContainer'),
+    conversationPanel: document.getElementById('conversationPanel'),
+    
+    // Input
+    voiceBtn: document.getElementById('voiceBtn'),
+    textInput: document.getElementById('textInput'),
+    sendBtn: document.getElementById('sendBtn'),
+    
+    // Controls
+    minimizeBtn: document.getElementById('minimizeBtn'),
+    closeBtn: document.getElementById('closeBtn'),
+    clearBtn: document.getElementById('clearBtn'),
+    settingsBtn: document.getElementById('settingsBtn'),
+    
+    // Settings
+    settingsPanel: document.getElementById('settingsPanel'),
+    closeSettings: document.getElementById('closeSettings'),
+    themeSelect: document.getElementById('themeSelect'),
+    voiceFeedback: document.getElementById('voiceFeedback'),
+    transparencySlider: document.getElementById('transparencySlider'),
+    animationSpeed: document.getElementById('animationSpeed')
+};
+
+// ============================================================================
+// Initialization
+// ============================================================================
+
+function initialize() {
+    setupEventListeners();
+    setupWaveform();
+    loadSettings();
+    
+    console.log('PRISM UI initialized');
 }
 
-// IPC Event Handlers
-ipcRenderer.on('wake-word-detected', () => {
-  setOrbState('listening');
-  showPanel('', '');
-  updateStatus('Listening...', '#667eea');
-});
+function setupEventListeners() {
+    // Orb interaction
+    elements.orb.addEventListener('click', handleOrbClick);
+    
+    // Voice button
+    elements.voiceBtn.addEventListener('click', activateVoice);
+    
+    // Text input
+    elements.textInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            sendTextMessage();
+        }
+    });
+    
+    // Send button
+    elements.sendBtn.addEventListener('click', sendTextMessage);
+    
+    // Controls
+    elements.minimizeBtn.addEventListener('click', () => {
+        ipcRenderer.send('minimize-window');
+    });
+    
+    elements.closeBtn.addEventListener('click', () => {
+        ipcRenderer.send('close-window');
+    });
+    
+    elements.clearBtn.addEventListener('click', clearConversation);
+    
+    // Settings
+    elements.settingsBtn.addEventListener('click', () => {
+        elements.settingsPanel.classList.remove('hidden');
+    });
+    
+    elements.closeSettings.addEventListener('click', () => {
+        elements.settingsPanel.classList.add('hidden');
+    });
+    
+    // Settings controls
+    elements.themeSelect.addEventListener('change', updateSettings);
+    elements.voiceFeedback.addEventListener('change', updateSettings);
+    elements.transparencySlider.addEventListener('input', updateSettings);
+    elements.animationSpeed.addEventListener('change', updateSettings);
+    
+    // Backend messages
+    ipcRenderer.on('backend-message', (event, data) => {
+        handleBackendMessage(data);
+    });
+}
 
-ipcRenderer.on('speech-recognized', (event, text) => {
-  userQuery.textContent = text;
-  userQuery.style.display = 'block';
-  typingIndicator.classList.remove('hidden');
-  responseContent.textContent = '';
-  updateStatus('Processing...', '#ffa500');
-});
+// ============================================================================
+// Voice Activation
+// ============================================================================
 
-ipcRenderer.on('response-ready', (event, data) => {
-  typingIndicator.classList.add('hidden');
-  responseContent.textContent = data.text;
-  setOrbState('speaking');
-  updateStatus('Speaking...', '#4cd964');
-});
+function handleOrbClick() {
+    activateVoice();
+}
 
-ipcRenderer.on('response-complete', () => {
-  setTimeout(() => {
-    hidePanel();
-    setOrbState('idle');
-    updateStatus('Ready', '#4cd964');
-  }, 2000);
-});
+function activateVoice() {
+    console.log('Activating voice...');
+    elements.voiceBtn.classList.add('active');
+    ipcRenderer.send('activate-voice');
+}
 
-ipcRenderer.on('error', (event, error) => {
-  typingIndicator.classList.add('hidden');
-  responseContent.textContent = `Error: ${error}`;
-  responseContent.style.color = '#ff6b6b';
-  updateStatus('Error', '#ff6b6b');
-  
-  setTimeout(() => {
-    responseContent.style.color = 'white';
-    hidePanel();
-    setOrbState('idle');
-    updateStatus('Ready', '#4cd964');
-  }, 3000);
-});
+// ============================================================================
+// Text Input
+// ============================================================================
 
-ipcRenderer.on('update-status', (event, status) => {
-  updateStatus(status.text, status.color || '#4cd964');
-});
+function sendTextMessage() {
+    const text = elements.textInput.value.trim();
+    
+    if (!text) return;
+    
+    console.log('Sending text:', text);
+    
+    // Add user message to UI
+    addMessage('user', text);
+    
+    // Clear input
+    elements.textInput.value = '';
+    
+    // Send to backend
+    ipcRenderer.send('send-text', text);
+}
 
-// Initialize
-initWaveform();
-setOrbState('idle');
-updateStatus('Ready', '#4cd964');
+// ============================================================================
+// Message Management
+// ============================================================================
 
-// Keyboard shortcuts
-document.addEventListener('keydown', (e) => {
-  // Escape to close panel
-  if (e.key === 'Escape') {
-    hidePanel();
-    setOrbState('idle');
-  }
-  
-  // Ctrl+Space to activate
-  if (e.ctrlKey && e.code === 'Space') {
-    orb.click();
-  }
-});
+function addMessage(role, content, timestamp = null) {
+    const messageDiv = document.createElement('div');
+    messageDiv.className = `message ${role}-message`;
+    
+    const contentDiv = document.createElement('div');
+    contentDiv.className = 'message-content';
+    contentDiv.innerHTML = formatMessage(content);
+    
+    const timeDiv = document.createElement('div');
+    timeDiv.className = 'message-time';
+    timeDiv.textContent = timestamp || formatTime(new Date());
+    
+    messageDiv.appendChild(contentDiv);
+    messageDiv.appendChild(timeDiv);
+    
+    elements.messagesContainer.appendChild(messageDiv);
+    
+    // Scroll to bottom
+    elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+    
+    // Store in history
+    AppState.conversationHistory.push({ role, content, timestamp: new Date() });
+}
 
-// Prevent default drag behavior
-document.addEventListener('dragover', (e) => e.preventDefault());
-document.addEventListener('drop', (e) => e.preventDefault());
+function formatMessage(content) {
+    // Basic markdown-like formatting
+    return content
+        .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*(.*?)\*/g, '<em>$1</em>')
+        .replace(/\n/g, '<br>');
+}
+
+function formatTime(date) {
+    const now = new Date();
+    const diff = Math.floor((now - date) / 1000);
+    
+    if (diff < 60) return 'Just now';
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    
+    return date.toLocaleTimeString('en-US', { 
+        hour: 'numeric', 
+        minute: '2-digit',
+        hour12: true 
+    });
+}
+
+function showTypingIndicator() {
+    const indicator = document.createElement('div');
+    indicator.className = 'message assistant-message typing-indicator';
+    indicator.id = 'typing-indicator';
+    indicator.innerHTML = `
+        <div class="message-content">
+            <div style="display: flex; gap: 6px;">
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+                <div class="typing-dot"></div>
+            </div>
+        </div>
+    `;
+    
+    elements.messagesContainer.appendChild(indicator);
+    elements.messagesContainer.scrollTop = elements.messagesContainer.scrollHeight;
+}
+
+function hideTypingIndicator() {
+    const indicator = document.getElementById('typing-indicator');
+    if (indicator) {
+        indicator.remove();
+    }
+}
+
+function clearConversation() {
+    // Keep system message
+    const systemMessage = elements.messagesContainer.querySelector('.system-message');
+    elements.messagesContainer.innerHTML = '';
+    if (systemMessage) {
+        elements.messagesContainer.appendChild(systemMessage);
+    }
+    
+    AppState.conversationHistory = [];
+    
+    // Notify backend
+    ipcRenderer.send('send-to-backend', { type: 'clear_conversation' });
+}
+
+// ============================================================================
+// State Management
+// ============================================================================
+
+function setState(newState) {
+    const oldState = AppState.currentState;
+    AppState.currentState = newState;
+    
+    console.log(`State: ${oldState} -> ${newState}`);
+    
+    // Update orb
+    elements.orb.className = 'orb ' + newState;
+    
+    // Update indicator text
+    const stateText = elements.stateIndicator.querySelector('.state-text');
+    stateText.textContent = newState.charAt(0).toUpperCase() + newState.slice(1);
+    
+    // Handle state-specific actions
+    switch (newState) {
+        case 'listening':
+            elements.voiceBtn.classList.add('active');
+            startWaveformAnimation();
+            break;
+        
+        case 'processing':
+            elements.voiceBtn.classList.remove('active');
+            stopWaveformAnimation();
+            showTypingIndicator();
+            break;
+        
+        case 'responding':
+            hideTypingIndicator();
+            break;
+        
+        case 'idle':
+            elements.voiceBtn.classList.remove('active');
+            stopWaveformAnimation();
+            hideTypingIndicator();
+            break;
+        
+        case 'error':
+            elements.voiceBtn.classList.remove('active');
+            stopWaveformAnimation();
+            hideTypingIndicator();
+            break;
+    }
+}
+
+// ============================================================================
+// Waveform Visualization
+// ============================================================================
+
+let waveformContext = null;
+let waveformAnimation = null;
+
+function setupWaveform() {
+    const canvas = elements.waveform;
+    canvas.width = 160;
+    canvas.height = 160;
+    waveformContext = canvas.getContext('2d');
+}
+
+function startWaveformAnimation() {
+    if (waveformAnimation) return;
+    
+    let phase = 0;
+    
+    function animate() {
+        if (!waveformContext) return;
+        
+        const ctx = waveformContext;
+        const width = ctx.canvas.width;
+        const height = ctx.canvas.height;
+        const centerX = width / 2;
+        const centerY = height / 2;
+        
+        // Clear canvas
+        ctx.clearRect(0, 0, width, height);
+        
+        // Draw waveform
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.6)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        
+        const radius = 60;
+        const points = 32;
+        
+        for (let i = 0; i <= points; i++) {
+            const angle = (i / points) * Math.PI * 2;
+            const wave = Math.sin(angle * 3 + phase) * 8 + Math.cos(angle * 5 + phase * 1.5) * 5;
+            const r = radius + wave;
+            const x = centerX + Math.cos(angle) * r;
+            const y = centerY + Math.sin(angle) * r;
+            
+            if (i === 0) {
+                ctx.moveTo(x, y);
+            } else {
+                ctx.lineTo(x, y);
+            }
+        }
+        
+        ctx.closePath();
+        ctx.stroke();
+        
+        phase += 0.05;
+        waveformAnimation = requestAnimationFrame(animate);
+    }
+    
+    animate();
+}
+
+function stopWaveformAnimation() {
+    if (waveformAnimation) {
+        cancelAnimationFrame(waveformAnimation);
+        waveformAnimation = null;
+    }
+    
+    if (waveformContext) {
+        waveformContext.clearRect(0, 0, waveformContext.canvas.width, waveformContext.canvas.height);
+    }
+}
+
+// ============================================================================
+// Backend Message Handling
+// ============================================================================
+
+function handleBackendMessage(data) {
+    console.log('Backend message:', data);
+    
+    switch (data.type) {
+        case 'state_change':
+            setState(data.state);
+            break;
+        
+        case 'listening_started':
+            console.log('Voice listening started');
+            break;
+        
+        case 'listening_timeout':
+            console.log('Voice listening timed out');
+            addMessage('system', 'No speech detected. Please try again.');
+            setState('idle');
+            break;
+        
+        case 'user_message':
+            // Message already shown by sendTextMessage for text input
+            // For voice input, show it here
+            if (!elements.textInput.value) {
+                // This was from voice, not text input
+                addMessage('user', data.content, data.timestamp);
+            }
+            break;
+        
+        case 'assistant_message':
+            hideTypingIndicator();
+            addMessage('assistant', data.content, data.timestamp);
+            break;
+        
+        case 'audio_level':
+            // Update waveform based on audio level
+            updateWaveformLevel(data.level);
+            break;
+        
+        case 'error':
+            hideTypingIndicator();
+            addMessage('system', `Error: ${data.message}`);
+            setState('error');
+            setTimeout(() => setState('idle'), 2000);
+            break;
+    }
+}
+
+function updateWaveformLevel(level) {
+    // Could enhance waveform animation based on actual audio level
+    // For now, it's animated independently
+}
+
+// ============================================================================
+// Settings Management
+// ============================================================================
+
+function loadSettings() {
+    const saved = localStorage.getItem('prism-settings');
+    if (saved) {
+        AppState.settings = { ...AppState.settings, ...JSON.parse(saved) };
+    }
+    
+    // Apply settings to UI
+    elements.themeSelect.value = AppState.settings.theme;
+    elements.voiceFeedback.checked = AppState.settings.voiceFeedback;
+    elements.transparencySlider.value = AppState.settings.transparency;
+    elements.animationSpeed.value = AppState.settings.animationSpeed;
+    
+    applySettings();
+}
+
+function updateSettings() {
+    AppState.settings = {
+        theme: elements.themeSelect.value,
+        voiceFeedback: elements.voiceFeedback.checked,
+        transparency: parseInt(elements.transparencySlider.value),
+        animationSpeed: elements.animationSpeed.value
+    };
+    
+    localStorage.setItem('prism-settings', JSON.stringify(AppState.settings));
+    applySettings();
+}
+
+function applySettings() {
+    const { theme, transparency, animationSpeed } = AppState.settings;
+    
+    // Apply theme (could add light theme styles)
+    document.body.setAttribute('data-theme', theme);
+    
+    // Apply transparency
+    document.documentElement.style.setProperty('--glass-bg-alpha', transparency / 100);
+    
+    // Apply animation speed
+    const speeds = { slow: '0.7s', normal: '0.3s', fast: '0.15s' };
+    document.documentElement.style.setProperty('--transition-normal', speeds[animationSpeed]);
+}
+
+// ============================================================================
+// Initialize on load
+// ============================================================================
+
+document.addEventListener('DOMContentLoaded', initialize);

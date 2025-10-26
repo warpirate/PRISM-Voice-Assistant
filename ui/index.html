@@ -1,72 +1,141 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PRISM</title>
-  <link href="styles.css" rel="stylesheet">
-  <link href="node_modules/animate.css/animate.min.css" rel="stylesheet">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PRISM</title>
+    <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <!-- Animated Orb (Siri-like) -->
-  <div id="orb-container">
-    <div id="orb" class="orb-idle">
-      <div class="orb-inner"></div>
-      <div class="orb-glow"></div>
-      <canvas id="waveform"></canvas>
-    </div>
-  </div>
-
-  <!-- Expandable Panel -->
-  <div id="panel" class="glass-panel hidden animate__animated">
-    <div class="panel-header">
-      <div class="prism-icon">
-        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-          <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
-          <circle cx="12" cy="12" r="3" fill="currentColor"/>
-        </svg>
-      </div>
-      <h2>PRISM</h2>
-      <button id="close-panel" class="close-btn">×</button>
-    </div>
-    
-    <div class="panel-content">
-      <div id="user-query" class="query-text"></div>
-      <div id="response" class="response-text">
-        <div class="typing-indicator hidden">
-          <span></span>
-          <span></span>
-          <span></span>
+    <!-- Main Container -->
+    <div id="app" class="app-container">
+        
+        <!-- Header / Control Bar -->
+        <div class="header">
+            <div class="logo">
+                <div class="logo-icon">◇</div>
+                <span class="logo-text">PRISM</span>
+            </div>
+            <div class="controls">
+                <button class="control-btn" id="settingsBtn" title="Settings">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="12" cy="12" r="3"></circle>
+                        <path d="M12 1v6m0 6v6m9-9h-6m-6 0H3"></path>
+                    </svg>
+                </button>
+                <button class="control-btn" id="minimizeBtn" title="Minimize">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="5" y1="12" x2="19" y2="12"></line>
+                    </svg>
+                </button>
+                <button class="control-btn close" id="closeBtn" title="Close">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <line x1="18" y1="6" x2="6" y2="18"></line>
+                        <line x1="6" y1="6" x2="18" y2="18"></line>
+                    </svg>
+                </button>
+            </div>
         </div>
-        <p id="response-content">Listening for "PRISM"...</p>
-      </div>
+
+        <!-- Central Orb -->
+        <div class="orb-container">
+            <div class="orb" id="prismOrb">
+                <div class="orb-inner">
+                    <div class="orb-pulse"></div>
+                    <div class="orb-core">
+                        <svg class="orb-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
+                        </svg>
+                    </div>
+                </div>
+                <!-- Waveform Visualization -->
+                <canvas id="waveform" class="waveform"></canvas>
+            </div>
+            
+            <!-- State Indicator -->
+            <div class="state-indicator" id="stateIndicator">
+                <span class="state-text">Idle</span>
+            </div>
+        </div>
+
+        <!-- Conversation Panel -->
+        <div class="conversation-panel" id="conversationPanel">
+            <div class="conversation-header">
+                <span>Conversation</span>
+                <button class="clear-btn" id="clearBtn">Clear</button>
+            </div>
+            <div class="messages" id="messagesContainer">
+                <div class="message system-message">
+                    <div class="message-content">
+                        <p>Hello! I'm PRISM, your AI assistant. Say "Prism" or click the orb to activate me.</p>
+                    </div>
+                    <div class="message-time">Just now</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Input Area -->
+        <div class="input-area">
+            <button class="voice-btn" id="voiceBtn" title="Activate Voice">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"></path>
+                    <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
+                    <line x1="12" y1="19" x2="12" y2="23"></line>
+                    <line x1="8" y1="23" x2="16" y2="23"></line>
+                </svg>
+            </button>
+            <input 
+                type="text" 
+                class="text-input" 
+                id="textInput" 
+                placeholder="Type or use voice..."
+                autocomplete="off"
+            />
+            <button class="send-btn" id="sendBtn">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                    <line x1="22" y1="2" x2="11" y2="13"></line>
+                    <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+                </svg>
+            </button>
+        </div>
+
+        <!-- Settings Panel (Hidden by default) -->
+        <div class="settings-panel hidden" id="settingsPanel">
+            <div class="settings-header">
+                <h3>Settings</h3>
+                <button class="close-settings" id="closeSettings">×</button>
+            </div>
+            <div class="settings-content">
+                <div class="setting-group">
+                    <label>Theme</label>
+                    <select id="themeSelect">
+                        <option value="dark">Dark</option>
+                        <option value="light">Light</option>
+                        <option value="auto">Auto</option>
+                    </select>
+                </div>
+                <div class="setting-group">
+                    <label>Voice Feedback</label>
+                    <input type="checkbox" id="voiceFeedback" checked>
+                </div>
+                <div class="setting-group">
+                    <label>Transparency</label>
+                    <input type="range" id="transparencySlider" min="0" max="100" value="85">
+                </div>
+                <div class="setting-group">
+                    <label>Animation Speed</label>
+                    <select id="animationSpeed">
+                        <option value="slow">Slow</option>
+                        <option value="normal" selected>Normal</option>
+                        <option value="fast">Fast</option>
+                    </select>
+                </div>
+            </div>
+        </div>
+
     </div>
 
-    <div class="panel-footer">
-      <div class="status-indicator">
-        <span class="status-dot"></span>
-        <span id="status-text">Ready</span>
-      </div>
-      <div class="input-row">
-        <input id="text-input" type="text" placeholder="Type a command or question..." />
-        <button id="send-btn">Send</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- System Tray Indicator -->
-  <div id="tray-indicator" class="tray-indicator">
-    <div class="tray-pulse"></div>
-  </div>
-
-  <!-- Settings Button (floating) -->
-  <button id="settings-btn" class="settings-btn">
-    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="2"/>
-      <path d="M12 1v6m0 6v10M1 12h6m6 0h10" stroke="currentColor" stroke-width="2"/>
-    </svg>
-  </button>
-
-  <script src="renderer.js"></script>
+    <!-- Scripts -->
+    <script src="renderer.js"></script>
 </body>
 </html>

@@ -4,50 +4,51 @@
 
 ![PRISM Logo](ui/assets/icon.png)
 
-**A Beautiful, Siri-Like Voice Assistant for Windows**
+**An elegant, voice-activated AI assistant with a premium glassmorphic interface**
 
-[![Python](https://img.shields.io/badge/Python-3.10+-blue.svg)](https://www.python.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
-[![Electron](https://img.shields.io/badge/Electron-27+-lightblue.svg)](https://www.electronjs.org/)
-[![License](https://img.shields.io/badge/License-Private-red.svg)](LICENSE)
-
-*"Hey PRISM, let's get things done!"* 🚀
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Node.js 16+](https://img.shields.io/badge/node-16+-green.svg)](https://nodejs.org/)
+[![Powered by Gemini](https://img.shields.io/badge/Powered%20by-Google%20Gemini-4285F4)](https://ai.google.dev/)
 
 </div>
 
----
-
-## 🌟 Overview
-
-PRISM is a stunning voice-activated AI assistant for Windows that combines the elegance of macOS Siri with the power of modern AI. Featuring a beautiful glassmorphic UI, intelligent responses, and seamless system control, PRISM transforms how you interact with your computer.
-
-### ✨ Key Highlights
-
-- 🎨 **Gorgeous UI** - Glassmorphic design with animated floating orb
-- 🎤 **Voice Control** - Wake word detection and natural speech recognition
-- 🤖 **AI-Powered** - Intelligent responses using Llama 3.1 70B via Nebius
-- 💾 **Memory System** - Remembers past interactions for personalized responses
-- 🖥️ **System Control** - Launch apps, manage files, execute commands
-- 🔒 **Privacy-Focused** - Voice processed locally, minimal cloud usage
+> 🎉 **Now powered by Google Gemini!** - Faster responses, free tier, and multimodal-ready. [Learn more](GEMINI_MIGRATION.md)
 
 ---
 
-## 🎬 Demo
+## ✨ Features
 
-### UI States
+### 🎤 Voice Interaction
+- **Wake Word Detection**: Always-listening for "Prism" activation phrase
+- **Speech Recognition**: High-accuracy voice-to-text conversion
+- **Natural Voice Synthesis**: Smooth, natural-sounding responses
+- **Audio Visualization**: Real-time waveform display during voice interaction
 
-**Idle State**
-- Floating orb with gentle animation
-- Ready for activation
+### 🤖 AI Intelligence
+- **Natural Language Understanding**: Powered by Google Gemini 2.5 Flash (October 2025)
+- **Context-Aware**: Maintains conversation history with 1M token context window
+- **Multi-Modal Input**: Voice, text, or keyboard shortcuts
+- **Action Processing**: Understands and executes system commands
+- **Free Tier**: 250 requests/day with generous rate limits
 
-**Listening State**
-- Pulsing blue-purple gradient
-- Animated waveform visualization
-- Recording your voice
+### 💻 System Control
+- **Application Management**: Launch, focus, and manage applications
+- **File Operations**: Create, search, and manipulate files
+- **Web Search**: Quick access to web information
+- **System Commands**: Execute safe system-level operations
 
-**Speaking State**
-- Green gradient with dynamic animation
-- Playing response through speakers
+### 🎨 Premium UI
+- **Glassmorphic Design**: Beautiful frosted glass effects
+- **State-Based Animations**: Dynamic visual feedback for different states
+- **Responsive Orb**: Central interface element with smooth transitions
+- **Always Accessible**: System tray integration and global hotkeys
+
+### 🧠 Memory & Learning
+- **Conversation Storage**: Persistent chat history
+- **Pattern Recognition**: Learns from user behavior
+- **Personalization**: Adapts to user preferences
+- **Privacy Controls**: Configurable data retention
 
 ---
 
@@ -55,267 +56,332 @@ PRISM is a stunning voice-activated AI assistant for Windows that combines the e
 
 ### Prerequisites
 
-- Windows 10/11 (64-bit)
-- Python 3.10 or higher
-- Node.js 18 or higher
-- Nebius AI Studio API key
+- **Python 3.8+** - [Download](https://www.python.org/downloads/)
+- **Node.js 16+** - [Download](https://nodejs.org/)
+- **Windows 10/11** (primary platform)
 
-### Installation (3 Steps)
+### Installation
 
-1. **Run Setup**
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/yourusername/prism.git
+   cd prism
+   ```
+
+2. **Run setup script**
    ```bash
    setup.bat
    ```
 
-2. **Configure API Key**
-   - Edit `.env` file
-   - Add your Nebius API key: `NEBIUS_API_KEY=neb-your-key`
+3. **Configure API key**
+   - Copy `.env.example` to `.env`
+   - Add your Gemini API key:
+     ```env
+     GEMINI_API_KEY=your_key_here
+     ```
+   - Get your free API key at [Google AI Studio](https://makersuite.google.com/app/apikey)
 
-3. **Launch PRISM**
+4. **Start PRISM**
    ```bash
    start.bat
    ```
 
-**That's it!** PRISM will open with the beautiful UI ready to use.
+### First Use
 
-📖 **Detailed Instructions:** See [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md)
+1. **Activation Methods**:
+   - Say "Prism" (if wake word detection is working)
+   - Click the central orb
+   - Press `Ctrl+Space`
 
----
-
-## 💡 Usage
-
-### Activation Methods
-
-1. **Voice** - Say "Computer" to activate
-2. **Click** - Click the floating orb
-3. **Keyboard** - Press `Ctrl+Shift+P`
-
-### Example Commands
-
-```
-🖥️ System Control
-"Computer, open Notepad"
-"Computer, launch Calculator"
-"Computer, open Documents folder"
-
-💬 Conversation
-"Computer, tell me a joke"
-"Computer, how are you today?"
-"Computer, what can you do?"
-
-📚 Information
-"Computer, what is Python?"
-"Computer, explain machine learning"
-"Computer, what's the weather?"
-```
-
----
-
-## 🎨 Features
-
-### Beautiful UI
-- **Glassmorphic Design** - Frosted glass effects with blur
-- **Animated Orb** - Siri-inspired floating orb with multiple states
-- **Smooth Animations** - CSS animations and canvas waveforms
-- **Responsive Panel** - Expandable panel showing queries and responses
-- **System Tray** - Minimize to tray, always accessible
-
-### Voice Capabilities
-- **Wake Word Detection** - Hands-free activation with Porcupine
-- **Speech Recognition** - OpenAI Whisper for accurate transcription
-- **Text-to-Speech** - Natural voice output with customization
-- **Multi-Modal Input** - Voice, click, or keyboard activation
-
-### AI Intelligence
-- **Nebius AI Studio** - Powered by Llama 3.1 70B
-- **Contextual Responses** - Understands conversation context
-- **Personality** - Friendly, helpful, JARVIS-like character
-- **Memory-Aware** - References past interactions
-
-### System Control
-- **App Launching** - Open any Windows application
-- **File Management** - Navigate folders and files
-- **Custom Commands** - Easily extensible command system
-- **Productivity Routines** - Chain multiple actions
-
-### Memory System
-- **Interaction Storage** - SQLite database for history
-- **Personalization** - Learns from past conversations
-- **Context Awareness** - Remembers recent actions
-- **Privacy-Focused** - All data stored locally
-
----
-
-## 📁 Project Structure
-
-```
-PRISM/
-├── backend/              # Python backend
-│   ├── main.py          # Main coordinator
-│   ├── prism_llm.py     # AI integration
-│   ├── voice_pipeline.py # Voice handling
-│   ├── tts.py           # Text-to-speech
-│   ├── system_control.py # System commands
-│   └── memory.py        # Memory management
-│
-├── ui/                  # Electron frontend
-│   ├── main.js          # Electron main
-│   ├── renderer.js      # UI logic
-│   ├── index.html       # Main UI
-│   ├── styles.css       # Styling
-│   └── assets/          # Icons
-│
-├── logs/                # Application logs
-├── .env                 # API keys (create from .env.example)
-├── requirements.txt     # Python dependencies
-├── setup.bat           # Setup script
-└── start.bat           # Launch script
-```
+2. **Try Commands**:
+   - "Open Chrome"
+   - "Search for Python tutorials"
+   - "Create a file called notes.txt"
+   - "What's the weather like?"
 
 ---
 
 ## 📚 Documentation
 
-| Document | Description |
-|----------|-------------|
-| [QUICKSTART.md](QUICKSTART.md) | Quick start guide and basic usage |
-| [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md) | Detailed installation instructions |
-| [FEATURES.md](FEATURES.md) | Complete feature documentation |
-| [UI_PREVIEW.md](UI_PREVIEW.md) | UI design and visual guide |
-| [PROJECT_SUMMARY.md](PROJECT_SUMMARY.md) | Project overview and summary |
-| [development.md](development.md) | Development plan and phases |
-| [CHANGELOG.md](CHANGELOG.md) | Version history and changes |
+### Project Structure
 
----
+```
+PRISM/
+├── backend/                 # Python backend
+│   ├── main.py             # Entry point
+│   ├── coordinator.py      # Central orchestrator
+│   ├── voice_pipeline.py   # Voice processing
+│   ├── ai_engine.py        # AI integration
+│   ├── system_control.py   # System operations
+│   ├── memory_system.py    # Data persistence
+│   └── config.py           # Configuration
+│
+├── ui/                      # Electron UI
+│   ├── index.html          # Main interface
+│   ├── styles.css          # Glassmorphic styles
+│   ├── renderer.js         # UI logic
+│   ├── main.js             # Electron main process
+│   └── assets/             # Icons and images
+│
+├── data/                    # User data (auto-created)
+│   ├── memory.db           # Conversation database
+│   ├── logs/               # Application logs
+│   └── config.json         # User settings
+│
+├── .env                     # Environment variables
+├── requirements.txt         # Python dependencies
+├── package.json            # Node dependencies
+├── setup.bat               # Setup script
+└── start.bat               # Startup script
+```
 
-## 🛠️ Technology Stack
+### System Architecture
 
-### Frontend
-- **Electron** - Desktop application framework
-- **HTML/CSS/JavaScript** - Modern web technologies
-- **Canvas API** - Waveform visualizations
-- **Animate.css** - Smooth animations
+#### 1. Central Coordinator
+The heart of PRISM that manages all subsystems:
+- Routes messages between modules
+- Manages application lifecycle
+- Handles state transitions
+- Coordinates voice, AI, and system control
 
-### Backend
-- **Python 3.10+** - Core backend language
-- **OpenAI Whisper** - Speech recognition
-- **Porcupine** - Wake word detection
-- **pyttsx3** - Text-to-speech
-- **SQLite** - Memory database
+#### 2. Voice Pipeline
+Handles all voice interactions:
+- **Wake Word**: Porcupine for "Prism" detection
+- **STT**: Google Speech Recognition
+- **TTS**: pyttsx3 for voice synthesis
+- **Audio Processing**: Real-time audio capture and visualization
 
-### AI/Cloud
-- **Nebius AI Studio** - LLM API (Llama 3.1 70B)
-- **OpenAI SDK** - API client
+#### 3. AI Engine
+Powers natural language understanding:
+- Supports OpenAI GPT and Anthropic Claude
+- Context-aware conversation
+- Action extraction from natural language
+- Fallback rule-based processing
+
+#### 4. System Control
+Executes system operations:
+- Application launching and management
+- File system operations
+- Web searches
+- Safe command execution
+
+#### 5. Memory System
+Manages data persistence:
+- SQLite database for conversations
+- Pattern recognition and learning
+- User preferences storage
+- Automatic data cleanup
+
+#### 6. Glassmorphic UI
+Premium Electron interface:
+- Frosted glass effects
+- State-based animations
+- Waveform visualization
+- System tray integration
 
 ---
 
 ## ⚙️ Configuration
 
-### Environment Variables
-
-Edit `.env` file:
+### Environment Variables (`.env`)
 
 ```env
-# Required
-NEBIUS_API_KEY=neb-your-key-here
+# AI Provider
+AI_PROVIDER=gemini              # gemini, local
+GEMINI_API_KEY=your-gemini-key-here
+GEMINI_MODEL=gemini-2.5-flash   # gemini-2.5-flash (recommended), gemini-2.0-flash, gemini-2.0-flash-lite
 
-# Optional
-PORCUPINE_ACCESS_KEY=your-key-here
-SERPAPI_KEY=your-key-here
+# Voice Settings
+WAKE_WORD=prism
+VOICE_LANGUAGE=en-US
+TTS_VOICE=default
+TTS_RATE=175
+TTS_VOLUME=0.9
+ENABLE_WAKE_WORD=true
+ENABLE_VOICE_FEEDBACK=true
+
+# System
+LOG_LEVEL=INFO
+MINIMIZE_TO_TRAY=true
+
+# Privacy
+STORE_CONVERSATIONS=true
+RETENTION_DAYS=30
+ENABLE_ANALYTICS=false
+
+# UI
+THEME=dark
+TRANSPARENCY=0.85
+ANIMATION_SPEED=normal
+
+# Shortcuts
+ACTIVATION_HOTKEY=ctrl+space
+TOGGLE_VISIBILITY_HOTKEY=ctrl+shift+p
 ```
 
-### Customization
+### Keyboard Shortcuts
 
-- **Voice:** Change TTS voice in `backend/tts.py`
-- **Commands:** Add commands in `backend/system_control.py`
-- **UI Colors:** Edit `ui/styles.css`
-- **Personality:** Adjust prompts in `backend/prism_llm.py`
-
----
-
-## 🔒 Privacy & Security
-
-- ✅ Voice processing done **locally** (Whisper)
-- ✅ Only **text** sent to cloud (Nebius)
-- ✅ No telemetry or tracking
-- ✅ API keys stored securely in `.env`
-- ✅ Memory stored **locally** in SQLite
+- **Ctrl+Space** - Activate voice input
+- **Ctrl+Shift+P** - Toggle window visibility
+- **Enter** - Send text message
+- **Esc** - Close settings panel
 
 ---
 
-## 🐛 Troubleshooting
+## 🎨 UI States
 
-### Common Issues
+PRISM's central orb visually represents the current state:
 
-**Microphone not working?**
-- Check Windows microphone permissions
-- Ensure no other app is using the microphone
-
-**API errors?**
-- Verify `NEBIUS_API_KEY` in `.env`
-- Check internet connection
-
-**Module not found?**
-- Run `setup.bat` again
-- Check `logs/prism.log` for details
-
-📖 **Full Troubleshooting:** See [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md#troubleshooting)
+- **Idle** (Blue) - Waiting for activation
+- **Listening** (Green) - Capturing voice input
+- **Processing** (Orange) - Analyzing request
+- **Responding** (Purple) - Delivering response
+- **Error** (Red) - Error occurred
 
 ---
 
-## 🚧 Roadmap
+## 🔧 Troubleshooting
 
-### Coming Soon
-- [ ] Web search integration (SerpAPI)
-- [ ] Calendar/email integration (Microsoft Graph)
-- [ ] Custom productivity routines
-- [ ] Voice customization (Coqui TTS)
-- [ ] Multi-language support
-- [ ] Plugin system
-- [ ] Mobile companion app
+### PyAudio Installation Issues (Windows)
+
+PyAudio can be tricky on Windows. If installation fails:
+
+1. Download the wheel file for your Python version from [here](https://www.lfd.uci.edu/~gohlke/pythonlibs/#pyaudio)
+2. Install manually:
+   ```bash
+   pip install PyAudio-X.X.X-cpXX-cpXX-win_amd64.whl
+   ```
+
+### Wake Word Not Working
+
+Wake word detection requires Porcupine access key:
+
+1. Sign up at [Picovoice Console](https://console.picovoice.ai/)
+2. Get your access key
+3. Update configuration to use the key
+4. Alternatively, use manual activation (click orb or Ctrl+Space)
+
+### UI Not Connecting to Backend
+
+Check that:
+- Backend is running (separate window should appear)
+- No firewall blocking localhost:9876
+- Check backend logs in `data/logs/`
+
+### API Rate Limits
+
+If you hit API rate limits:
+- Reduce conversation history length
+- Use shorter responses
+- Consider fallback rule-based mode
 
 ---
 
-## 🤝 Contributing
+## 🛠️ Development
 
-This is a personal project, but feel free to:
-- Fork and customize for your needs
-- Report issues in your fork
-- Share improvements
+### Running in Development Mode
+
+```bash
+# Backend with debug logging
+cd backend
+python main.py
+
+# UI with DevTools
+cd ui
+set NODE_ENV=development
+npm start
+```
+
+### Adding Custom Commands
+
+Edit `backend/ai_engine.py` fallback processing:
+
+```python
+async def _process_fallback(self, user_input: str) -> AIResponse:
+    user_input_lower = user_input.lower()
+    
+    # Add your custom command
+    if "custom command" in user_input_lower:
+        return AIResponse(
+            text="Executing custom command...",
+            requires_action=True,
+            actions=[{
+                "type": "custom_action",
+                "parameters": {...}
+            }]
+        )
+```
+
+### Extending System Control
+
+Add new actions in `backend/system_control.py`:
+
+```python
+async def execute_action(self, action: Dict[str, Any]) -> Dict[str, Any]:
+    action_type = action.get("type")
+    
+    if action_type == "your_action":
+        return await self.your_custom_function(...)
+```
 
 ---
 
-## 📄 License
+## 🔐 Privacy & Security
 
-Private use only. Not for distribution.
+- **Local-First**: Most processing happens locally
+- **Data Control**: Full control over data storage
+- **Secure APIs**: Encrypted communication with AI providers
+- **No Telemetry**: No usage tracking unless explicitly enabled
+- **Data Retention**: Automatic cleanup based on settings
+
+---
+
+## 📝 License
+
+MIT License - see [LICENSE](LICENSE) file for details
 
 ---
 
 ## 🙏 Acknowledgments
 
-- **Nebius AI Studio** - LLM API
-- **OpenAI Whisper** - Speech recognition
-- **Picovoice Porcupine** - Wake word detection
-- **Electron** - Desktop framework
-- **Python Community** - Amazing libraries
+- **Google** - Gemini 2.5 Flash AI model
+- **Picovoice** - Porcupine wake word engine
+- **Electron** - Cross-platform desktop framework
+
+## 📖 Additional Documentation
+
+- **[GEMINI_MODELS_2025.md](GEMINI_MODELS_2025.md)** - Complete guide to Gemini models and rate limits
+- **[GEMINI_MIGRATION.md](GEMINI_MIGRATION.md)** - Migration guide from older versions
+- **[SETUP_GUIDE.md](SETUP_GUIDE.md)** - Detailed installation instructions
+- **[QUICK_START.md](QUICK_START.md)** - Get started in 5 minutes
 
 ---
 
-## 📞 Support
+## 🗺️ Roadmap
 
-- 📖 Check [QUICKSTART.md](QUICKSTART.md) for basic help
-- 🔍 Review [INSTALLATION_GUIDE.md](INSTALLATION_GUIDE.md) for setup issues
-- 📝 Check `logs/prism.log` for error details
-- 🧪 Run `python test_setup.py` to verify installation
+- [ ] macOS and Linux support
+- [ ] Custom wake word training
+- [ ] Plugin system for extensions
+- [ ] Local AI model support
+- [ ] Mobile companion app
+- [ ] Calendar and email integration
+- [ ] Smart home control
+- [ ] Multi-language support
+
+---
+
+## 💬 Support
+
+- **Issues**: [GitHub Issues](https://github.com/yourusername/prism/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/yourusername/prism/discussions)
+- **Email**: support@prism.ai
 
 ---
 
 <div align="center">
 
-**Built with ❤️ for personal productivity**
+**Made with ❤️ by the PRISM Team**
 
-*Transform your Windows experience with PRISM* ✨
-
-[Get Started](QUICKSTART.md) • [Documentation](FEATURES.md) • [Installation](INSTALLATION_GUIDE.md)
+⭐ Star us on GitHub if you find PRISM useful!
 
 </div>

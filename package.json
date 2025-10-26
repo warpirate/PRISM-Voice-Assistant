@@ -1,0 +1,37 @@
+{
+  "name": "prism-ui",
+  "version": "1.1.0",
+  "description": "PRISM - Personal Response Interface for System Management (Powered by Google Gemini)",
+  "main": "ui/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder"
+  },
+  "keywords": [
+    "ai",
+    "assistant",
+    "voice",
+    "automation"
+  ],
+  "author": "PRISM Team",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^28.2.0",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "axios": "^1.6.5",
+    "ws": "^8.16.0"
+  },
+  "build": {
+    "appId": "com.prism.assistant",
+    "productName": "PRISM",
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "ui/assets/icon.png"
+    }
+  }
+}

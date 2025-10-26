@@ -1,27 +1,36 @@
+# PRISM - Personal Response Interface for System Management
 # Core Dependencies
-openai>=1.55.0
-python-dotenv>=1.0.1
-numpy>=1.24.0
 
-# Voice Processing (Python 3.12 Compatible)
-openai-whisper>=20250625
-pyttsx3>=2.98
-pyaudio>=0.2.14
-pvporcupine>=3.0.0
+# Voice Processing
+SpeechRecognition==3.10.4     # Speech-to-text (updated for Python 3.12)
+pyttsx3==2.90                 # Text-to-speech
+pyaudio==0.2.14               # Audio I/O (for microphone access)
+setuptools==69.0.0            # Required for distutils (Python 3.12+)
 
-# TTS - Using Coqui (Python 3.12 compatible)
-coqui-tts>=0.27.2
+# AI Integration
+google-generativeai==0.3.2    # Google Gemini API for language understanding
 
-# Windows Integration
-pywin32>=306
+# System Control
+psutil==5.9.8                 # System and process utilities
+pywin32==306                  # Windows system integration
+pyautogui==0.9.54             # GUI automation
 
-# API & Web
-requests>=2.32.3
-google-search-results>=2.4.2
+# Web & Information Retrieval
+requests==2.31.0              # HTTP requests
+beautifulsoup4==4.12.3        # Web scraping
+duckduckgo-search==4.4.3      # Search integration
 
-# Authentication
-msal>=1.31.0
+# UI Framework
+PyQt6==6.6.1                  # Modern UI framework
+PyQt6-WebEngine==6.6.0        # Web rendering for glassmorphic effects
 
-# Testing
-pytest>=8.3.0
-responses>=0.25.0
+# Data Management
+sqlalchemy==2.0.25            # Database ORM
+python-dotenv==1.0.1          # Environment configuration
+pydantic==2.6.1               # Data validation
+
+# Utilities
+watchdog==4.0.0               # File system monitoring
+colorama==0.4.6               # Terminal colors
+loguru==0.7.2                 # Advanced logging
+websockets==12.0              # WebSocket communication
