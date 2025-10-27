@@ -17,6 +17,13 @@ from backend.system_control import SystemControl
 from backend.memory_system import MemorySystem
 from backend.websocket_bridge import WebSocketBridge
 from backend.realtime_voice import RealtimeVoiceSession
+from backend.agents import (
+    AgentRegistry,
+    AgentCoordinator,
+    PersonalFileAgent,
+    PersonalWebAgent,
+    PersonalProductivityAgent
+)
 
 
 class SystemState(Enum):
@@ -49,6 +56,11 @@ class PRISMCoordinator:
         self.websocket = WebSocketBridge()
         self.realtime_voice: Optional[RealtimeVoiceSession] = None
         
+        # Initialize agent system
+        self.agent_registry = AgentRegistry()
+        self.agent_coordinator: Optional[AgentCoordinator] = None
+        self.agents_enabled = True  # Toggle for agent-based processing
+        
         # Voice mode
         self.realtime_mode = False  # Toggle between traditional and real-time voice
         
@@ -73,6 +85,9 @@ class PRISMCoordinator:
             await self.ai.initialize()
             await self.memory.initialize()
             await self.websocket.start()
+            
+            # Initialize agent system
+            await self._initialize_agents()
             
             # Register callbacks
             self.voice.on_wake_word = self._on_wake_word_detected
@@ -104,6 +119,10 @@ class PRISMCoordinator:
         self._set_state(SystemState.SHUTDOWN)
         
         try:
+            # Shutdown agents first
+            if self.agent_registry:
+                await self.agent_registry.shutdown_all()
+            
             await self.voice.shutdown()
             await self.ai.shutdown()
             await self.memory.shutdown()
@@ -180,6 +199,13 @@ class PRISMCoordinator:
                 self._send_message({
                     "type": "conversation_history",
                     "history": history
+                })
+            
+            elif msg_type == "get_agent_status":
+                status = await self.get_agent_status()
+                self._send_message({
+                    "type": "agent_status",
+                    "status": status
                 })
             
             elif msg_type == "ping":
@@ -441,7 +467,40 @@ class PRISMCoordinator:
                 "timestamp": datetime.now().isoformat()
             })
             
-            # Get AI response
+            # Try agent-based execution first (agent-centric approach)
+            agent_result = await self._try_agent_execution(user_input)
+            
+            if agent_result and agent_result.get('handled'):
+                # Agent handled the task successfully
+                agent_response = agent_result['response']
+                response_text = agent_response.message
+                
+                # Add agent-generated suggestions
+                if agent_response.suggestions:
+                    response_text += "\n\nSuggestions:\n" + "\n".join(f"• {s}" for s in agent_response.suggestions)
+                
+                # Store agent response
+                self.conversation_context.append({
+                    "role": "assistant",
+                    "content": response_text
+                })
+                
+                if config.privacy.store_conversations:
+                    await self.memory.store_interaction({
+                        "role": "assistant",
+                        "content": response_text,
+                        "timestamp": datetime.now().isoformat(),
+                        "agent": agent_response.agent_name,
+                        "requires_action": False
+                    })
+                
+                # Deliver response
+                await self._deliver_response(response_text)
+                self._set_state(SystemState.IDLE)
+                return
+            
+            # Fallback to LLM for complex reasoning or unhandled tasks
+            logger.info("Using LLM for task processing")
             response = await self.ai.process_input(
                 user_input=user_input,
                 conversation_history=self.conversation_context,
@@ -589,6 +648,96 @@ class PRISMCoordinator:
                 self.message_callback(message)
             except Exception as e:
                 logger.error(f"Error in message callback: {e}")
+
+    # ==================== Agent System Methods ====================
+    
+    async def _initialize_agents(self):
+        """Initialize and register all personal agents"""
+        try:
+            logger.info("Initializing agent system...")
+            
+            # Create agents
+            file_agent = PersonalFileAgent()
+            web_agent = PersonalWebAgent()
+            productivity_agent = PersonalProductivityAgent()
+            
+            # Register agents
+            await self.agent_registry.register(file_agent)
+            await self.agent_registry.register(web_agent)
+            await self.agent_registry.register(productivity_agent)
+            
+            # Create coordinator
+            self.agent_coordinator = AgentCoordinator(self.agent_registry)
+            
+            stats = self.agent_registry.get_statistics()
+            logger.success(f"Agent system initialized: {stats['total_agents']} agents registered")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize agents: {str(e)}")
+            self.agents_enabled = False
+    
+    async def _try_agent_execution(self, user_input: str) -> Optional[Dict[str, Any]]:
+        """
+        Try to execute task using agent system
+        
+        Returns:
+            Dict with result if agent handled it, None if should fallback to LLM
+        """
+        if not self.agents_enabled or not self.agent_coordinator:
+            return None
+        
+        try:
+            # Step 1: Use AI engine to parse user intent
+            logger.info("Parsing user intent with LLM...")
+            intent_data = await self.ai.parse_user_intent(
+                user_input,
+                context=await self._get_system_context()
+            )
+            
+            logger.info(f"Parsed intent: agent_type={intent_data.get('agent_type')}, task={intent_data.get('task_type')}, params={intent_data.get('parameters')}")
+            
+            # If confidence is too low or it's conversational, fallback to LLM
+            if intent_data.get('confidence', 0) < 0.5 or intent_data.get('agent_type') == 'conversational':
+                logger.info(f"Low confidence ({intent_data.get('confidence')}) or conversational task, using LLM")
+                return None
+            
+            # Step 2: Let agent coordinator execute with parsed intent
+            response = await self.agent_coordinator.execute_task_with_intent(
+                intent_data=intent_data,
+                context={
+                    'conversation_history': self.conversation_context,
+                    'system_context': await self._get_system_context()
+                }
+            )
+            
+            if response.is_success():
+                logger.info(f"Task handled by agent: {response.agent_name}")
+                return {
+                    'handled': True,
+                    'agent_name': response.agent_name,
+                    'response': response
+                }
+            else:
+                logger.info(f"Agent execution failed, falling back to LLM: {response.error}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Agent execution error: {str(e)}")
+            return None
+    
+    async def get_agent_status(self) -> Dict[str, Any]:
+        """Get status of all agents"""
+        if not self.agent_registry:
+            return {'enabled': False}
+        
+        health = await self.agent_registry.health_check_all()
+        stats = self.agent_registry.get_statistics()
+        
+        return {
+            'enabled': self.agents_enabled,
+            'statistics': stats,
+            'health': health
+        }
 
     # ==================== Context Management ====================
 

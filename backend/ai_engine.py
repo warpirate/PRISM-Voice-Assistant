@@ -204,7 +204,17 @@ class AIEngine:
             lambda: self.model.generate_content(full_prompt)
         )
         
-        text = response.text
+        # Handle multi-part responses
+        try:
+            text = response.text
+        except Exception as e:
+            logger.warning(f"Could not access response.text: {e}, using parts")
+            # Fallback to parts
+            text = ""
+            if response.candidates and len(response.candidates) > 0:
+                parts = response.candidates[0].content.parts
+                text = "".join([part.text for part in parts if hasattr(part, 'text')])
+        
         return AIResponse(text=text)
 
     async def _process_fallback(self, user_input: str) -> AIResponse:
@@ -368,6 +378,288 @@ class AIEngine:
                     break
         
         return response
+
+    async def parse_user_intent(self, user_input: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """
+        Parse user input to understand intent and extract structured parameters for agents
+        
+        Returns:
+            Dict with:
+            - agent_type: Which agent should handle this
+            - task_type: Specific task for the agent
+            - parameters: Structured parameters extracted from user input
+            - confidence: How confident the LLM is about this interpretation
+        """
+        logger.info(f"Parsing user intent: {user_input}")
+        
+        # Build a prompt specifically for intent parsing
+        intent_prompt = f"""You are PRISM's intent parser. Analyze the user's request and extract structured information.
+
+User request: "{user_input}"
+
+Analyze this request and respond with a JSON object containing:
+1. "agent_type": Which agent should handle this (file_management, web_operations, productivity, system_control, or conversational)
+2. "task_type": The specific task (e.g., "search_files", "organize_downloads", "web_search", "open_app", etc.)
+3. "parameters": A dictionary of extracted parameters relevant to the task
+4. "confidence": Your confidence level (0.0 to 1.0)
+
+For file searches, extract:
+- search_term: What to search for (keywords only, not full sentence)
+- location: Where to search (e.g., "downloads", "documents", "desktop", or null for all)
+- file_type: Type of file if mentioned (e.g., "video", "document", "image", or null)
+
+For opening files, extract the same parameters as searching.
+
+Examples:
+
+User: "search for coolie movie in my downloads folder"
+Response: {{
+  "agent_type": "file_management",
+  "task_type": "search_files",
+  "parameters": {{
+    "search_term": "coolie",
+    "location": "downloads",
+    "file_type": "video"
+  }},
+  "confidence": 0.95
+}}
+
+User: "open og movie from downloads"
+Response: {{
+  "agent_type": "file_management",
+  "task_type": "open_file",
+  "parameters": {{
+    "search_term": "og",
+    "location": "downloads",
+    "file_type": "video"
+  }},
+  "confidence": 0.98
+}}
+
+User: "play the video coolie"
+Response: {{
+  "agent_type": "file_management",
+  "task_type": "open_file",
+  "parameters": {{
+    "search_term": "coolie",
+    "location": null,
+    "file_type": "video"
+  }},
+  "confidence": 0.95
+}}
+
+User: "organize my downloads"
+Response: {{
+  "agent_type": "file_management",
+  "task_type": "organize_downloads",
+  "parameters": {{}},
+  "confidence": 1.0
+}}
+
+User: "find project report pdf"
+Response: {{
+  "agent_type": "file_management",
+  "task_type": "search_files",
+  "parameters": {{
+    "search_term": "project report",
+    "location": null,
+    "file_type": "document"
+  }},
+  "confidence": 0.9
+}}
+
+User: "search for python tutorial"
+Response: {{
+  "agent_type": "web_operations",
+  "task_type": "web_search",
+  "parameters": {{
+    "query": "python tutorial"
+  }},
+  "confidence": 0.95
+}}
+
+User: "run dir command in downloads folder"
+Response: {{
+  "agent_type": "file_management",
+  "task_type": "run_command",
+  "parameters": {{
+    "command": "dir",
+    "working_dir": "C:\\Users\\[username]\\Downloads"
+  }},
+  "confidence": 0.9
+}}
+
+User: "execute ipconfig"
+Response: {{
+  "agent_type": "file_management",
+  "task_type": "run_command",
+  "parameters": {{
+    "command": "ipconfig",
+    "working_dir": null
+  }},
+  "confidence": 0.95
+}}
+
+Now analyze the user's request and respond ONLY with the JSON object, no other text:
+"""
+        
+        try:
+            if self.provider == "gemini" and self.model:
+                # Get LLM response
+                response = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self.model.generate_content(intent_prompt)
+                )
+                
+                # Handle multi-part responses
+                try:
+                    response_text = response.text.strip()
+                except Exception as e:
+                    logger.warning(f"Could not access response.text: {e}, using parts")
+                    # Fallback to parts
+                    response_text = ""
+                    if response.candidates and len(response.candidates) > 0:
+                        parts = response.candidates[0].content.parts
+                        response_text = "".join([part.text for part in parts if hasattr(part, 'text')]).strip()
+                
+                logger.info(f"LLM intent response: {response_text}")
+                
+                # Extract JSON from response
+                # Sometimes LLM wraps JSON in markdown code blocks
+                if "```json" in response_text:
+                    json_match = re.search(r'```json\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+                    if json_match:
+                        response_text = json_match.group(1)
+                elif "```" in response_text:
+                    json_match = re.search(r'```\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+                    if json_match:
+                        response_text = json_match.group(1)
+                
+                # Parse JSON
+                intent_data = json.loads(response_text)
+                logger.info(f"Parsed intent: {intent_data}")
+                return intent_data
+                
+            else:
+                # Fallback: Simple keyword-based parsing
+                return self._fallback_intent_parsing(user_input)
+                
+        except Exception as e:
+            logger.error(f"Error parsing intent: {e}")
+            # Return fallback
+            return self._fallback_intent_parsing(user_input)
+    
+    def _fallback_intent_parsing(self, user_input: str) -> Dict[str, Any]:
+        """Fallback intent parsing using keywords"""
+        user_lower = user_input.lower()
+        
+        # Open/play file pattern
+        if any(word in user_lower for word in ['open', 'play', 'launch']) and not any(word in user_lower for word in ['application', 'app', 'program']):
+            # Extract search term
+            for phrase in ['open the', 'open', 'play the', 'play', 'launch']:
+                if phrase in user_lower:
+                    remainder = user_input.lower().replace(phrase, '').strip()
+                    
+                    # Extract location
+                    location = None
+                    if 'downloads' in remainder or 'from downloads' in remainder:
+                        location = 'downloads'
+                        remainder = remainder.replace('from downloads', '').replace('in downloads', '').replace('downloads', '').strip()
+                    elif 'documents' in remainder or 'from documents' in remainder:
+                        location = 'documents'
+                        remainder = remainder.replace('from documents', '').replace('in documents', '').replace('documents', '').strip()
+                    
+                    # Extract file type
+                    file_type = None
+                    if any(word in remainder for word in ['movie', 'video', 'mp4', 'mkv']):
+                        file_type = 'video'
+                    elif any(word in remainder for word in ['pdf', 'document', 'doc']):
+                        file_type = 'document'
+                    elif any(word in remainder for word in ['image', 'photo', 'picture', 'jpg', 'png']):
+                        file_type = 'image'
+                    
+                    # Clean up search term
+                    search_term = remainder.replace('movie', '').replace('video', '').replace('folder', '').replace('from', '').strip()
+                    
+                    return {
+                        'agent_type': 'file_management',
+                        'task_type': 'open_file',
+                        'parameters': {
+                            'search_term': search_term,
+                            'location': location,
+                            'file_type': file_type
+                        },
+                        'confidence': 0.8
+                    }
+        
+        # File search pattern
+        if 'search' in user_lower or 'find' in user_lower:
+            # Extract search term
+            for phrase in ['search for', 'find', 'look for']:
+                if phrase in user_lower:
+                    remainder = user_input.lower().replace(phrase, '').strip()
+                    
+                    # Extract location
+                    location = None
+                    if 'downloads' in remainder:
+                        location = 'downloads'
+                        remainder = remainder.replace('in my downloads folder', '').replace('downloads', '').strip()
+                    elif 'documents' in remainder:
+                        location = 'documents'
+                        remainder = remainder.replace('in my documents', '').replace('documents', '').strip()
+                    
+                    # Extract file type
+                    file_type = None
+                    if any(word in remainder for word in ['movie', 'video', 'mp4', 'mkv']):
+                        file_type = 'video'
+                    elif any(word in remainder for word in ['pdf', 'document', 'doc']):
+                        file_type = 'document'
+                    elif any(word in remainder for word in ['image', 'photo', 'picture', 'jpg', 'png']):
+                        file_type = 'image'
+                    
+                    # Clean up search term
+                    search_term = remainder.replace('movie', '').replace('video', '').replace('folder', '').replace('in my', '').strip()
+                    
+                    return {
+                        'agent_type': 'file_management',
+                        'task_type': 'search_files',
+                        'parameters': {
+                            'search_term': search_term,
+                            'location': location,
+                            'file_type': file_type
+                        },
+                        'confidence': 0.7
+                    }
+        
+        # Organize downloads
+        if 'organize' in user_lower and 'download' in user_lower:
+            return {
+                'agent_type': 'file_management',
+                'task_type': 'organize_downloads',
+                'parameters': {},
+                'confidence': 0.9
+            }
+        
+        # Web search
+        if 'search' in user_lower and ('web' in user_lower or 'google' in user_lower or 'internet' in user_lower):
+            query = user_input
+            for phrase in ['search for', 'search', 'google', 'look up']:
+                query = query.replace(phrase, '').strip()
+            
+            return {
+                'agent_type': 'web_operations',
+                'task_type': 'web_search',
+                'parameters': {'query': query},
+                'confidence': 0.8
+            }
+        
+        # Default: conversational
+        return {
+            'agent_type': 'conversational',
+            'task_type': 'chat',
+            'parameters': {'message': user_input},
+            'confidence': 0.5
+        }
 
     async def shutdown(self):
         """Shutdown AI engine"""
