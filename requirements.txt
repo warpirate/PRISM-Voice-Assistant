@@ -8,7 +8,11 @@ pyaudio==0.2.14               # Audio I/O (for microphone access)
 setuptools==69.0.0            # Required for distutils (Python 3.12+)
 
 # AI Integration
-google-generativeai==0.3.2    # Google Gemini API for language understanding
+google-generativeai==0.8.3    # Google Gemini API for language understanding
+google-genai==0.3.0           # Google GenAI client for Live API support (WebSocket streaming)
+numpy>=1.26.0                 # Array operations for audio processing (Python 3.12 compatible)
+librosa==0.10.2.post1         # Audio resampling and format conversion
+soundfile==0.12.1             # Audio file I/O (PCM format conversion)
 
 # System Control
 psutil==5.9.8                 # System and process utilities
@@ -33,4 +37,6 @@ pydantic==2.6.1               # Data validation
 watchdog==4.0.0               # File system monitoring
 colorama==0.4.6               # Terminal colors
 loguru==0.7.2                 # Advanced logging
-websockets==12.0              # WebSocket communication
+websockets>=13.0              # WebSocket communication (required by google-genai)
+fuzzywuzzy==0.18.0            # Fuzzy string matching for app names
+python-Levenshtein==0.25.1    # Faster fuzzy matching (optional but recommended)

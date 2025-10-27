@@ -59,41 +59,50 @@ class AIEngine:
         
         # System prompt that defines PRISM's personality and capabilities
         self.system_prompt = """You are PRISM (Personal Response Interface for System Management), 
-an intelligent voice-activated AI assistant. You help users with:
+        my personal AI assistant. I am here to help you with:
 
-1. **System Control**: Opening applications, managing files, executing commands
-2. **Information Retrieval**: Answering questions, searching the web, providing knowledge
-3. **Productivity**: Creating files, organizing tasks, managing workflows
-4. **Conversation**: Engaging in natural, helpful dialogue
+        1. **System Control**: Opening applications, managing files, executing commands
+        2. **Information Retrieval**: Answering questions, searching the web, providing knowledge
+        3. **Productivity**: Creating files, organizing tasks, managing workflows
+        4. **Natural Conversation**: Engaging in helpful, friendly dialogue
 
-**Personality**: Professional yet friendly, concise but thorough, proactive and helpful.
+        **My Personality**: I am your personal assistant - helpful, efficient, and natural. I respond like a capable assistant, not a system. I speak directly and personally to you.
 
-**CRITICAL INSTRUCTION FOR ACTIONS**:
-When a user asks you to perform a system action (open app, search, create file, etc.), you MUST:
-1. Respond naturally to the user
-2. ALWAYS include the ACTION tag in your response
-3. The action will be executed automatically
+        **IMPORTANT**: Never mention technical details like confidence scores, system processes, or implementation details. Just respond naturally and get things done.
 
-**Action Format** (REQUIRED for all system actions):
-ACTION: {"type": "action_type", "parameters": {...}}
+        **When you ask me to perform system actions**:
+        1. I respond naturally to you
+        2. I automatically handle the action in the background
+        3. I include the required action tag (which you won't see)
 
-Available actions:
-- open_application: {"name": "app_name"} - Example: ACTION: {"type": "open_application", "parameters": {"name": "notepad"}}
-- open_file: {"path": "file_path"}
-- search_files: {"query": "search_term", "location": "directory"}
-- create_file: {"path": "file_path", "content": "file_content"}
-- web_search: {"query": "search_query"}
-- system_command: {"command": "command_to_execute"}
+        **Action Format** (required for system actions):
+        ACTION: {"type": "action_type", "parameters": {...}}
 
-**Example Responses**:
-User: "Open notepad"
-Assistant: "Certainly! Opening Notepad for you now.
-ACTION: {"type": "open_application", "parameters": {"name": "notepad"}}"
+        Available actions:
+        - open_application: {"name": "app_name"} 
+        - open_file: {"path": "file_path"}
+        - search_files: {"query": "search_term", "location": "directory"}
+        - create_file: {"path": "file_path", "content": "file_content"}
+        - web_search: {"query": "search_query"}
+        - system_command: {"command": "command_to_execute"}
 
-User: "Search for Python tutorials"
-Assistant: "I'll search for Python tutorials for you.
-ACTION: {"type": "web_search", "parameters": {"query": "Python tutorials"}}"
-"""
+        **Example Responses**:
+        User: "Open notepad"
+        Assistant: "I'll open Notepad for you right away.
+        ACTION: {"type": "open_application", "parameters": {"name": "notepad"}}"
+
+        User: "Open crome" (typo)
+        Assistant: "I'll open Chrome for you.
+        ACTION: {"type": "open_application", "parameters": {"name": "chrome"}}"
+
+        User: "Launch calc"
+        Assistant: "Opening Calculator for you.
+        ACTION: {"type": "open_application", "parameters": {"name": "calc"}}"
+
+        User: "Search for Python tutorials"
+        Assistant: "I'll search for Python tutorials for you.
+        ACTION: {"type": "web_search", "parameters": {"query": "Python tutorials"}}"
+        """
 
     async def initialize(self):
         """Initialize AI provider"""
@@ -259,19 +268,18 @@ ACTION: {"type": "web_search", "parameters": {"query": "Python tutorials"}}"
 
     def _extract_actions(self, response: AIResponse) -> AIResponse:
         """Extract actions from AI response text"""
-        # Look for ACTION: {...} patterns with better JSON extraction
-        # Match the literal string "ACTION:" and then attempt to parse a JSON object that follows.
-        # Using a hand-rolled parser here is more reliable than regex because we need to cope with
-        # nested braces and occasional malformed outputs from the LLM.
+        # Collect all ACTION blocks to remove, then remove them all at once
         action_keyword = "ACTION:"
-        search_start = 0
         decoder = json.JSONDecoder()
+        blocks_to_remove = []  # List of (start_idx, end_idx) tuples
         
+        search_start = 0
         while True:
             # Locate the next ACTION: token
             idx = response.text.find(action_keyword, search_start)
             if idx == -1:
                 break
+            
             # Find the first opening brace after ACTION:
             brace_idx = response.text.find('{', idx)
             if brace_idx == -1:
@@ -286,12 +294,13 @@ ACTION: {"type": "web_search", "parameters": {"query": "Python tutorials"}}"
                 response.requires_action = True
                 response.actions.append(action_obj)
                 logger.info(f"Extracted action from ACTION tag: {action_obj}")
-                # Remove the ACTION block (token + JSON) from the assistant text
-                response.text = response.text[:idx] + response.text[brace_idx + end_pos:]
-                # Continue searching after the removed segment
-                search_start = idx
+                
+                # Mark this block for removal (from ACTION: to end of JSON)
+                blocks_to_remove.append((idx, brace_idx + end_pos))
+                search_start = brace_idx + end_pos
+                
             except json.JSONDecodeError as e:
-                # If the JSON is truncated (common LLM issue), try to balance braces heuristically
+                # Try to balance braces heuristically
                 open_braces = substring.count('{')
                 close_braces = substring.count('}')
                 if open_braces > close_braces:
@@ -301,18 +310,21 @@ ACTION: {"type": "web_search", "parameters": {"query": "Python tutorials"}}"
                         action_obj, end_pos = decoder.raw_decode(balanced_substring)
                         response.requires_action = True
                         response.actions.append(action_obj)
-                        logger.info(f"Extracted action (after balancing braces) from ACTION tag: {action_obj}")
-                        # Remove the corrected ACTION block from the text
+                        logger.info(f"Extracted action (after balancing braces): {action_obj}")
+                        
+                        # Mark for removal
                         end_pos_original = min(len(substring), end_pos)
-                        response.text = response.text[:idx] + response.text[brace_idx + end_pos_original:]
-                        search_start = idx
+                        blocks_to_remove.append((idx, brace_idx + end_pos_original))
+                        search_start = brace_idx + end_pos_original
                         continue
                     except json.JSONDecodeError:
-                        pass  # Fall through to manual extraction
-                # Manual fallback for simple open_application pattern
-                logger.warning(f"Could not parse action JSON: {substring[:100]}... - Error: {e}")
-                type_match = re.search(r'"type"\s*:\s*"([^"]+)"', substring)
-                name_match = re.search(r'"name"\s*:\s*"([^"]+)"', substring)
+                        pass
+                
+                # Manual fallback for simple patterns
+                logger.warning(f"Could not parse action JSON: {substring[:100]}...")
+                type_match = re.search(r'"type"\s*:\s*"([^"]+)"', substring[:200])
+                name_match = re.search(r'"name"\s*:\s*"([^"]+)"', substring[:200])
+                
                 if type_match and name_match:
                     manual_action = {
                         "type": type_match.group(1),
@@ -321,9 +333,16 @@ ACTION: {"type": "web_search", "parameters": {"query": "Python tutorials"}}"
                     response.requires_action = True
                     response.actions.append(manual_action)
                     logger.info(f"Manually extracted action: {manual_action}")
-                # Move search_start to avoid infinite loop
+                
+                # Move past this failed attempt
                 search_start = brace_idx + 1
-            
+        
+        # Remove all ACTION blocks from text (in reverse order to maintain indices)
+        for start_idx, end_idx in reversed(blocks_to_remove):
+            response.text = response.text[:start_idx] + response.text[end_idx:]
+        
+        # Clean up extra whitespace
+        response.text = response.text.strip()
         
         # Fallback: Parse natural language for common actions if no ACTION tag found
         if not response.actions:

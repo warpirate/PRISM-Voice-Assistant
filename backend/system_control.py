@@ -7,10 +7,12 @@ import os
 import subprocess
 import psutil
 import platform
+import glob
 from pathlib import Path
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from loguru import logger
 import shutil
+from fuzzywuzzy import fuzz, process
 
 
 class SystemControl:
@@ -25,7 +27,13 @@ class SystemControl:
         self.system = platform.system()
         self.current_dir = Path.home()
         
-        # Application name mappings (common apps)
+        # Scan installed applications at startup
+        logger.info("Scanning installed applications...")
+        self.installed_apps = self.scan_installed_apps()
+        self.app_aliases = self.get_app_aliases()
+        logger.success(f"Scanned {len(self.installed_apps)} installed applications")
+        
+        # Legacy application name mappings (kept for backward compatibility)
         self.app_mappings = {
             # Browsers
             "chrome": "chrome.exe" if self.system == "Windows" else "google-chrome",
@@ -101,70 +109,302 @@ class SystemControl:
                 "message": f"Error: {str(e)}"
             }
 
-    async def open_application(self, app_name: str) -> Dict[str, Any]:
-        """Open an application by name"""
-        if not app_name:
-            return {"success": False, "message": "No application name provided"}
-        
-        original_name = app_name
-        app_name_lower = app_name.lower().strip()
-        logger.info(f"Opening application: '{original_name}' (normalized: '{app_name_lower}')")
+    def scan_installed_apps(self) -> Dict[str, str]:
+        """Scan for installed applications on the system."""
+        apps = {}
         
         try:
-            # Try to find the best match for the app
-            executable = self._resolve_app_name(app_name_lower)
-            
-            logger.info(f"Resolved '{original_name}' to executable: '{executable}'")
-            
             if self.system == "Windows":
-                # 1) URI scheme (ms-settings:, mailto:, etc.)
-                if ":" in executable and not executable.lower().endswith(".exe"):
-                    try:
-                        os.startfile(executable)
-                        started = True
-                    except OSError:
-                        started = False
-                else:
-                    # 2) Try os.startfile first – this leverages ShellExecute search logic
-                    try:
-                        os.startfile(executable)
-                        started = True
-                    except OSError:
-                        # 3) Explicit path resolution fallback
-                        exec_path = shutil.which(executable) or executable
-                        if not os.path.isabs(exec_path):
-                            # Try System32
-                            sys32 = os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32", executable)
-                            exec_path = sys32 if os.path.exists(sys32) else exec_path
-                        try:
-                            subprocess.Popen([exec_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-                            started = True
-                        except Exception:
-                            started = False
+                # Scan common Windows application paths
+                paths_to_scan = [
+                    r"C:\ProgramData\Microsoft\Windows\Start Menu\Programs",
+                    r"C:\Users\%USERNAME%\AppData\Roaming\Microsoft\Windows\Start Menu\Programs",
+                    r"C:\Program Files",
+                    r"C:\Program Files (x86)",
+                ]
                 
-            else:
-                # macOS/Linux
+                # Replace %USERNAME% with actual username
+                username = os.getenv('USERNAME')
+                if username:
+                    paths_to_scan = [path.replace('%USERNAME%', username) for path in paths_to_scan]
+                
+                for path in paths_to_scan:
+                    try:
+                        if os.path.exists(path):
+                            apps.update(self._scan_windows_path(path))
+                    except (PermissionError, OSError) as e:
+                        logger.debug(f"Could not scan path {path}: {e}")
+                        continue
+                        
+                # Add built-in Windows commands
+                apps.update({
+                    "notepad": "notepad.exe",
+                    "calculator": "calc.exe", 
+                    "paint": "mspaint.exe",
+                    "task manager": "taskmgr.exe",
+                    "explorer": "explorer.exe",
+                    "cmd": "cmd.exe",
+                    "powershell": "powershell.exe",
+                    "registry editor": "regedit.exe",
+                    "control panel": "control.exe",
+                    "settings": "ms-settings:",
+                    "store": "ms-windows-store:",
+                    "terminal": "wt.exe",
+                    "windows terminal": "wt.exe",
+                })
+                
+            elif self.system == "Darwin":  # macOS
                 try:
-                    proc = subprocess.Popen([executable])
-                    started = proc.poll() is None
-                except FileNotFoundError:
-                    started = False
+                    # Scan Applications folder
+                    apps_path = "/Applications"
+                    if os.path.exists(apps_path):
+                        for app in os.listdir(apps_path):
+                            if app.endswith(".app"):
+                                app_name = app.replace(".app", "").lower()
+                                apps[app_name] = f"open -a '{app_name.title()}'"
+                        
+                    # Add common macOS commands
+                    apps.update({
+                        "textedit": "open -a TextEdit",
+                        "calculator": "open -a Calculator",
+                        "safari": "open -a Safari",
+                        "finder": "open -a Finder",
+                        "terminal": "open -a Terminal",
+                    })
+                except (PermissionError, OSError) as e:
+                    logger.debug(f"Could not scan macOS applications: {e}")
             
-            if started:
+            elif self.system == "Linux":
+                try:
+                    # Scan for .desktop files
+                    desktop_paths = [
+                        "/usr/share/applications",
+                        "/usr/local/share/applications",
+                        os.path.expanduser("~/.local/share/applications")
+                    ]
+                    
+                    for path in desktop_paths:
+                        try:
+                            if os.path.exists(path):
+                                apps.update(self._scan_linux_desktop_files(path))
+                        except (PermissionError, OSError) as e:
+                            logger.debug(f"Could not scan Linux desktop path {path}: {e}")
+                            continue
+                except Exception as e:
+                    logger.debug(f"Could not scan Linux applications: {e}")
+        
+        except Exception as e:
+            logger.error(f"Unexpected error during app scanning: {e}")
+        
+        return apps
+    
+    def _scan_windows_path(self, path: str) -> Dict[str, str]:
+        """Scan Windows path for applications."""
+        apps = {}
+        try:
+            for root, dirs, files in os.walk(path):
+                for file in files:
+                    if file.endswith(".lnk"):
+                        # Extract app name from shortcut
+                        app_name = file.replace(".lnk", "").lower()
+                        # Try to resolve the shortcut
+                        try:
+                            import win32com.client
+                            shell = win32com.client.Dispatch("WScript.Shell")
+                            shortcut = shell.CreateShortCut(os.path.join(root, file))
+                            target_path = shortcut.Targetpath
+                            if target_path and os.path.exists(target_path):
+                                apps[app_name] = f'"{target_path}"'
+                        except ImportError:
+                            # Fallback: just use the name
+                            apps[app_name] = f"start {app_name}"
+                    elif file.endswith(".exe"):
+                        app_name = file.replace(".exe", "").lower()
+                        apps[app_name] = f'"{os.path.join(root, file)}"'
+        except PermissionError:
+            pass
+        return apps
+    
+    def _scan_linux_desktop_files(self, path: str) -> Dict[str, str]:
+        """Scan Linux .desktop files for applications."""
+        apps = {}
+        try:
+            for file in os.listdir(path):
+                if file.endswith(".desktop"):
+                    try:
+                        with open(os.path.join(path, file), 'r') as f:
+                            content = f.read()
+                            # Extract app name and exec command
+                            name = None
+                            exec_cmd = None
+                            for line in content.split('\n'):
+                                if line.startswith('Name='):
+                                    name = line.split('=', 1)[1].strip().lower()
+                                elif line.startswith('Exec='):
+                                    exec_cmd = line.split('=', 1)[1].strip().split()[0]
+                            if name and exec_cmd:
+                                apps[name] = exec_cmd
+                    except:
+                        continue
+        except PermissionError:
+            pass
+        return apps
+    
+    def get_app_aliases(self) -> Dict[str, List[str]]:
+        """Get common aliases for applications."""
+        return {
+            "chrome": ["google chrome", "browser", "web browser", "chrome browser"],
+            "firefox": ["mozilla firefox", "ff", "firefox browser"],
+            "edge": ["microsoft edge", "ms edge", "edge browser"],
+            "vs code": ["visual studio code", "vscode", "code editor", "code"],
+            "notepad": ["text editor", "notepad++", "notepad plus plus"],
+            "calculator": ["calc", "calc.exe"],
+            "spotify": ["music player", "spotify music"],
+            "discord": ["discord chat", "discord app"],
+            "slack": ["slack chat", "slack workspace"],
+            "word": ["microsoft word", "ms word", "word processor"],
+            "excel": ["microsoft excel", "ms excel", "spreadsheet"],
+            "powerpoint": ["microsoft powerpoint", "ms powerpoint", "presentation"],
+            "photoshop": ["adobe photoshop", "photo editor", "ps"],
+            "illustrator": ["adobe illustrator", "vector editor", "ai"],
+        }
+    
+    def find_best_app_match(self, user_input: str) -> Tuple[Optional[str], Optional[str], int]:
+        """Find the best matching application using fuzzy search."""
+        user_input_clean = user_input.lower().strip()
+        
+        # Create a list of all possible app names and their commands
+        all_apps = {}
+        for app_name, command in self.installed_apps.items():
+            all_apps[app_name] = command
+            
+        # Add aliases to the search pool
+        for canonical_name, aliases in self.app_aliases.items():
+            if canonical_name in self.installed_apps:
+                for alias in aliases:
+                    all_apps[alias] = self.installed_apps[canonical_name]
+        
+        # Use fuzzy matching to find the best match
+        best_match = process.extractOne(user_input_clean, list(all_apps.keys()), scorer=fuzz.ratio)
+        
+        if best_match and best_match[1] >= 60:  # 60% similarity threshold
+            matched_name = best_match[0]
+            command = all_apps[matched_name]
+            
+            # Find the canonical name for display
+            canonical_name = matched_name
+            for app_name in self.installed_apps:
+                if matched_name == app_name or matched_name in self.app_aliases.get(app_name, []):
+                    canonical_name = app_name
+                    break
+                    
+            return canonical_name, command, best_match[1]
+        
+        return None, None, 0
+
+    async def open_application(self, app_name: str) -> Dict[str, Any]:
+        """Open an application by name with fuzzy matching and typo tolerance."""
+        if not app_name:
+            return {"success": False, "message": "I need an application name to open something for you."}
+        
+        original_name = app_name
+        logger.info(f"Opening application: '{original_name}'")
+        
+        try:
+            # Use fuzzy matching to find the best match
+            canonical_name, command, confidence = self.find_best_app_match(app_name)
+            
+            if canonical_name and command:
+                logger.info(f"Matched '{original_name}' to '{canonical_name}' (confidence: {confidence}%)")
+                logger.info(f"Executing command: {command}")
+                
+                # Handle different command types
+                if command.startswith('"') and command.endswith('"'):
+                    # Direct path execution
+                    subprocess.Popen(command.strip('"'), shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                elif command.startswith('open -a'):
+                    # macOS open command
+                    subprocess.Popen(command, shell=True)
+                elif command.startswith('start'):
+                    # Windows start command
+                    subprocess.Popen(command, shell=True)
+                elif ":" in command and not command.lower().endswith(".exe"):
+                    # URI scheme (ms-settings:, mailto:, etc.)
+                    if self.system == "Windows":
+                        os.startfile(command)
+                    else:
+                        subprocess.Popen([command], shell=True)
+                else:
+                    # Regular command - try multiple methods with better Windows handling
+                    if self.system == "Windows":
+                        # Try multiple Windows execution methods
+                        success = False
+                        try:
+                            # Method 1: Try os.startfile first
+                            os.startfile(command)
+                            success = True
+                        except Exception as e1:
+                            logger.debug(f"os.startfile failed: {e1}")
+                            try:
+                                # Method 2: Try shutil.which to find full path
+                                full_path = shutil.which(command)
+                                if full_path:
+                                    subprocess.Popen([full_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                    success = True
+                                else:
+                                    # Method 3: Try System32 for built-in commands
+                                    if command.endswith('.exe'):
+                                        sys32_path = os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32", command)
+                                        if os.path.exists(sys32_path):
+                                            subprocess.Popen([sys32_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                            success = True
+                                    else:
+                                        # Method 4: Try with .exe extension
+                                        exe_command = command if command.endswith('.exe') else f"{command}.exe"
+                                        sys32_path = os.path.join(os.environ.get("SystemRoot", "C:\\Windows"), "System32", exe_command)
+                                        if os.path.exists(sys32_path):
+                                            subprocess.Popen([sys32_path], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                            success = True
+                            except Exception as e2:
+                                logger.debug(f"System32 execution failed: {e2}")
+                                try:
+                                    # Method 5: Fallback to shell execution
+                                    subprocess.Popen(command, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                                    success = True
+                                except Exception as e3:
+                                    logger.debug(f"Shell execution failed: {e3}")
+                        
+                        if not success:
+                            raise Exception(f"Failed to execute command: {command}")
+                    else:
+                        # macOS/Linux
+                        try:
+                            subprocess.Popen(command.split(), shell=False)
+                        except:
+                            subprocess.Popen(command, shell=True)
+                
                 return {
                     "success": True,
                     "notify": True,
-                    "message": f"Opened {original_name}"
+                    "message": f"I've opened {canonical_name.title()} for you."
                 }
-            else:
-                raise FileNotFoundError(f"Executable not found or failed to launch: {executable}")
+            
+            # If no good match found, suggest alternatives
+            suggestions = process.extract(app_name.lower(), list(self.installed_apps.keys()), limit=5)
+            suggestion_text = ", ".join([sug[0].title() for sug in suggestions if sug[1] >= 40])
+            
+            return {
+                "success": False,
+                "notify": True,
+                "message": f"I couldn't find '{original_name}'. Did you mean one of these: {suggestion_text}?"
+            }
             
         except Exception as e:
             logger.error(f"Could not open '{original_name}': {e}", exc_info=True)
             return {
                 "success": False,
                 "notify": True,
-                "message": f"Could not open {original_name}. Make sure it's installed."
+                "message": f"I'm having trouble opening {original_name}. Please try again."
             }
     
     def _resolve_app_name(self, app_name: str) -> str:
@@ -220,7 +460,7 @@ class SystemControl:
                 return {
                     "success": False,
                     "notify": True,
-                    "message": f"File not found: {file_path}"
+                    "message": f"I couldn't find the file: {file_path}"
                 }
         
         logger.info(f"Opening file: {path}")
@@ -236,7 +476,7 @@ class SystemControl:
             return {
                 "success": True,
                 "notify": True,
-                "message": f"Opened {path.name}"
+                "message": f"I've opened {path.name} for you."
             }
             
         except Exception as e:
@@ -246,7 +486,7 @@ class SystemControl:
     async def search_files(self, query: str, location: str = None) -> Dict[str, Any]:
         """Search for files matching query"""
         if not query:
-            return {"success": False, "message": "No search query provided"}
+            return {"success": False, "message": "I need something to search for."}
         
         search_dir = Path(location) if location else self.current_dir
         logger.info(f"Searching for '{query}' in {search_dir}")
@@ -263,14 +503,14 @@ class SystemControl:
                 return {
                     "success": True,
                     "notify": True,
-                    "message": f"Found {len(results)} files:\n{result_text}",
+                    "message": f"I found {len(results)} files for you:\n{result_text}",
                     "results": results
                 }
             else:
                 return {
                     "success": True,
                     "notify": True,
-                    "message": f"No files found matching '{query}'"
+                    "message": f"I couldn't find any files matching '{query}'"
                 }
                 
         except Exception as e:
@@ -280,7 +520,7 @@ class SystemControl:
     async def create_file(self, file_path: str, content: str = "") -> Dict[str, Any]:
         """Create a new file"""
         if not file_path:
-            return {"success": False, "message": "No file path provided"}
+            return {"success": False, "message": "I need a file path to create a file."}
         
         path = Path(file_path).expanduser()
         logger.info(f"Creating file: {path}")
@@ -295,7 +535,7 @@ class SystemControl:
             return {
                 "success": True,
                 "notify": True,
-                "message": f"Created file: {path.name}"
+                "message": f"I've created the file {path.name} for you."
             }
             
         except Exception as e:
@@ -305,7 +545,7 @@ class SystemControl:
     async def web_search(self, query: str) -> Dict[str, Any]:
         """Open web browser with search query"""
         if not query:
-            return {"success": False, "message": "No search query provided"}
+            return {"success": False, "message": "I need something to search for."}
         
         logger.info(f"Performing web search: {query}")
         
@@ -317,7 +557,7 @@ class SystemControl:
             return {
                 "success": True,
                 "notify": True,
-                "message": f"Searching for: {query}"
+                "message": f"I'm searching for: {query}"
             }
             
         except Exception as e:
@@ -327,14 +567,14 @@ class SystemControl:
     async def execute_command(self, command: str) -> Dict[str, Any]:
         """Execute a system command (with safety checks)"""
         if not command:
-            return {"success": False, "message": "No command provided"}
+            return {"success": False, "message": "I need a command to execute."}
         
         # Safety check - block dangerous commands
         dangerous_keywords = ["rm -rf", "del /f", "format", "shutdown"]
         if any(keyword in command.lower() for keyword in dangerous_keywords):
             return {
                 "success": False,
-                "message": "Command blocked for safety reasons"
+                "message": "I can't execute that command for safety reasons."
             }
         
         logger.info(f"Executing command: {command}")

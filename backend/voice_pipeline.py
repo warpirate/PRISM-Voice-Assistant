@@ -29,12 +29,6 @@ class VoicePipeline:
         self.recognizer = None
         self.microphone = None
         self.tts_engine = None
-        self.porcupine = None
-        self.audio_stream = None
-        
-        # Threading
-        self.wake_word_thread: Optional[threading.Thread] = None
-        self.wake_word_active = False
         
         # Callbacks
         self.on_wake_word: Optional[Callable] = None
@@ -43,7 +37,12 @@ class VoicePipeline:
         
         # Audio state
         self.is_listening = False
-        self.audio_queue = queue.Queue()
+        
+        # TTS synchronization
+        self.tts_lock = threading.Lock()
+        self.tts_queue = queue.Queue()
+        self.tts_worker_thread = None
+        self.tts_worker_active = False
 
     async def initialize(self):
         """Initialize all voice components"""
@@ -75,8 +74,10 @@ class VoicePipeline:
                         self.tts_engine.setProperty('voice', voice.id)
                         break
             
-            # Wake word detection removed - using manual activation only
-            self.porcupine = None
+            # Initialize TTS worker thread
+            self.tts_worker_active = True
+            self.tts_worker_thread = threading.Thread(target=self._tts_worker, daemon=True)
+            self.tts_worker_thread.start()
             
             self.initialized = True
             logger.success("Voice pipeline initialized (manual activation mode)")
@@ -150,24 +151,47 @@ class VoicePipeline:
 
     async def speak(self, text: str):
         """Convert text to speech and play"""
-        if not text:
+        if not text or not self.tts_engine:
             return
         
         logger.info(f"Speaking: {text}")
         
         try:
-            # Run TTS in thread to avoid blocking
-            await asyncio.get_event_loop().run_in_executor(
-                None,
-                lambda: self._speak_sync(text)
-            )
+            # Queue text for TTS worker
+            self.tts_queue.put(text)
         except Exception as e:
-            logger.error(f"Error during text-to-speech: {e}")
+            logger.error(f"Error queuing text-to-speech: {e}")
+
+    def _tts_worker(self):
+        """Worker thread for TTS to avoid event loop conflicts"""
+        while self.tts_worker_active:
+            try:
+                # Get text from queue with timeout
+                text = self.tts_queue.get(timeout=0.1)
+                
+                with self.tts_lock:
+                    try:
+                        self.tts_engine.say(text)
+                        self.tts_engine.runAndWait()
+                    except Exception as e:
+                        logger.error(f"Error in TTS worker: {e}")
+                        # Try to reset the TTS engine if there's an error
+                        try:
+                            self.tts_engine.endLoop()
+                        except:
+                            pass
+                
+                self.tts_queue.task_done()
+                
+            except queue.Empty:
+                continue
+            except Exception as e:
+                logger.error(f"Unexpected error in TTS worker: {e}")
 
     def _speak_sync(self, text: str):
-        """Synchronous TTS (runs in thread)"""
-        self.tts_engine.say(text)
-        self.tts_engine.runAndWait()
+        """Synchronous TTS (deprecated - using worker thread instead)"""
+        # This method is kept for compatibility but no longer used
+        pass
 
     async def play_activation_sound(self):
         """Play sound feedback for activation"""
@@ -182,20 +206,14 @@ class VoicePipeline:
         """Stop speech recognition"""
         self.is_listening = False
 
-    async def stop_wake_word_detection(self):
-        """Stop wake word detection"""
-        self.wake_word_active = False
-        if self.wake_word_thread:
-            self.wake_word_thread.join(timeout=2)
-
     async def shutdown(self):
         """Shutdown voice pipeline"""
         logger.info("Shutting down voice pipeline...")
         
-        await self.stop_wake_word_detection()
-        
-        if self.porcupine:
-            self.porcupine.delete()
+        # Stop TTS worker
+        self.tts_worker_active = False
+        if self.tts_worker_thread and self.tts_worker_thread.is_alive():
+            self.tts_worker_thread.join(timeout=2)
         
         if self.tts_engine:
             self.tts_engine.stop()

@@ -19,22 +19,14 @@ def setup_logging():
     """Configure logging"""
     logger.remove()  # Remove default handler
     
-    # Console logging
-    # Send INFO and WARNING logs to STDOUT; ERROR and CRITICAL to STDERR so Electron isn't confused.
+    # Send ALL logs to STDOUT to avoid Electron interpreting STDERR as errors
     logger.add(
         sys.stdout,
         format="<green>{time:HH:mm:ss}</green> | <level>{level:<8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> | <level>{message}</level>",
         level=config.log_level,
-        colorize=True,
-        filter=lambda record: record["level"].no < 40  # < ERROR
-    )
-
-    # Separate handler for ERROR and above to STDERR
-    logger.add(
-        sys.stderr,
-        format="<green>{time:HH:mm:ss}</green> | <level>{level:<8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> | <level>{message}</level>",
-        level="ERROR",
-        colorize=True,
+        colorize=False,  # Disable colorize to avoid potential stderr usage
+        backtrace=False,
+        diagnose=False
     )
     
     # File logging

@@ -16,6 +16,7 @@ from backend.ai_engine import AIEngine
 from backend.system_control import SystemControl
 from backend.memory_system import MemorySystem
 from backend.websocket_bridge import WebSocketBridge
+from backend.realtime_voice import RealtimeVoiceSession
 
 
 class SystemState(Enum):
@@ -38,6 +39,7 @@ class PRISMCoordinator:
     def __init__(self):
         self.state = SystemState.IDLE
         self.running = False
+        self.processing_lock = asyncio.Lock()  # Prevent concurrent processing
         
         # Initialize subsystems
         self.voice = VoicePipeline()
@@ -45,6 +47,10 @@ class PRISMCoordinator:
         self.system_control = SystemControl()
         self.memory = MemorySystem()
         self.websocket = WebSocketBridge()
+        self.realtime_voice: Optional[RealtimeVoiceSession] = None
+        
+        # Voice mode
+        self.realtime_mode = False  # Toggle between traditional and real-time voice
         
         # Event callbacks for UI
         self.state_callbacks: Dict[SystemState, list] = {state: [] for state in SystemState}
@@ -116,7 +122,28 @@ class PRISMCoordinator:
     async def process_text_input(self, text: str):
         """Process text input directly (without voice)"""
         logger.info(f"Processing text input: {text}")
-        await self._process_user_input(text, input_method="text")
+        
+        # Check if already processing
+        if self.processing_lock.locked():
+            logger.warning("Already processing a message, queuing this one")
+            # Queue it for later or notify user
+            self._send_message({
+                "type": "info",
+                "message": "Please wait, still processing previous request..."
+            })
+            return
+        
+        logger.info(f"Acquiring processing lock...")
+        async with self.processing_lock:
+            logger.info(f"Processing lock acquired, processing input: {text}")
+            try:
+                await self._process_user_input(text, input_method="text")
+                logger.info(f"Completed processing input: {text}")
+            except Exception as e:
+                logger.error(f"Error in process_text_input: {e}", exc_info=True)
+                raise
+            finally:
+                logger.info(f"Processing lock released for: {text}")
 
     async def execute_hotkey_action(self, hotkey: str):
         """Handle keyboard shortcut activation"""
@@ -127,6 +154,7 @@ class PRISMCoordinator:
     async def _handle_ui_message(self, message: Dict[str, Any]):
         """Handle messages from UI via WebSocket"""
         msg_type = message.get("type")
+        logger.info(f"Received UI message: {msg_type} - {message}")
         
         try:
             if msg_type == "activate_voice":
@@ -135,7 +163,10 @@ class PRISMCoordinator:
             elif msg_type == "process_text":
                 text = message.get("text")
                 if text:
+                    logger.info(f"Forwarding text to AI: {text}")
                     await self.process_text_input(text)
+                else:
+                    logger.warning("Received empty text in process_text message")
             
             elif msg_type == "clear_conversation":
                 self.clear_conversation_context()
@@ -154,15 +185,186 @@ class PRISMCoordinator:
             elif msg_type == "ping":
                 self._send_message({"type": "pong"})
             
+            elif msg_type == "toggle_realtime_voice":
+                await self.toggle_realtime_voice()
+            
             else:
                 logger.warning(f"Unknown message type from UI: {msg_type}")
                 
         except Exception as e:
-            logger.error(f"Error handling UI message: {e}")
+            logger.error(f"Error handling UI message: {e}", exc_info=True)
             self._send_message({
                 "type": "error",
                 "message": str(e)
             })
+
+    # ==================== Real-time Voice Methods ====================
+    
+    async def toggle_realtime_voice(self):
+        """Toggle real-time voice conversation mode"""
+        if self.realtime_mode:
+            await self.stop_realtime_voice()
+        else:
+            await self.start_realtime_voice()
+    
+    async def start_realtime_voice(self):
+        """Start real-time voice conversation with Gemini Live API"""
+        if self.realtime_mode:
+            logger.warning("Real-time voice already active")
+            return
+        
+        try:
+            logger.info("Starting real-time voice mode...")
+            
+            # Create new session
+            self.realtime_voice = RealtimeVoiceSession()
+            
+            # Set up callbacks
+            self.realtime_voice.on_text_received = self._on_realtime_text_received
+            self.realtime_voice.on_user_speech = self._on_realtime_user_speech
+            self.realtime_voice.on_function_call = self._on_realtime_function_call
+            self.realtime_voice.on_state_change = self._on_realtime_state_change
+            
+            # Start session
+            success = await self.realtime_voice.start_session()
+            
+            if success:
+                self.realtime_mode = True
+                self._set_state(SystemState.LISTENING)
+                
+                self._send_message({
+                    "type": "realtime_voice_started",
+                    "timestamp": datetime.now().isoformat()
+                })
+                
+                logger.success("Real-time voice mode started - continuous streaming active")
+            else:
+                self._send_message({
+                    "type": "error",
+                    "message": "Failed to initialize real-time voice session"
+                })
+            
+        except Exception as e:
+            logger.error(f"Failed to start real-time voice: {e}", exc_info=True)
+            self._send_message({
+                "type": "error",
+                "message": f"Failed to start real-time voice: {str(e)}"
+            })
+    
+    async def stop_realtime_voice(self):
+        """Stop real-time voice conversation"""
+        if not self.realtime_mode or not self.realtime_voice:
+            return
+        
+        try:
+            logger.info("Stopping real-time voice mode...")
+            
+            await self.realtime_voice.stop_session()
+            self.realtime_voice = None
+            self.realtime_mode = False
+            
+            self._set_state(SystemState.IDLE)
+            
+            self._send_message({
+                "type": "realtime_voice_stopped",
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            logger.success("Real-time voice mode stopped")
+            
+        except Exception as e:
+            logger.error(f"Error stopping real-time voice: {e}", exc_info=True)
+    
+    async def _on_realtime_user_speech(self, text: str):
+        """Handle user speech transcription from real-time voice"""
+        logger.info(f"User said: {text}")
+        
+        self._send_message({
+            "type": "user_message",
+            "content": text,
+            "timestamp": datetime.now().isoformat(),
+            "realtime": True
+        })
+    
+    async def _on_realtime_text_received(self, text: str):
+        """Handle assistant text response from real-time voice"""
+        logger.info(f"Assistant said: {text}")
+        
+        self._send_message({
+            "type": "assistant_message",
+            "content": text,
+            "timestamp": datetime.now().isoformat(),
+            "realtime": True
+        })
+    
+    async def _on_realtime_function_call(self, function_call: Dict[str, Any]):
+        """Handle function call from real-time voice"""
+        logger.info(f"Function call received: {function_call}")
+        
+        try:
+            func_id = function_call.get("id")
+            func_name = function_call.get("name")
+            func_args = function_call.get("args", {})
+            
+            if not func_id:
+                logger.error("Function call missing ID - cannot send response")
+                return
+            
+            # Map function calls to action format
+            action = {
+                "type": func_name,
+                "parameters": func_args
+            }
+            
+            logger.info(f"Executing action from real-time voice: {action}")
+            
+            # Execute the action
+            result = await self.system_control.execute_action(action)
+            
+            logger.info(f"Action result: {result}")
+            
+            # Send result back to Gemini session
+            if self.realtime_voice:
+                response_data = {
+                    "success": result.get("success", False),
+                    "message": result.get("message", ""),
+                    "result": "ok" if result.get("success", False) else "error"
+                }
+                await self.realtime_voice.send_function_response(func_id, func_name, response_data)
+            
+            # Notify UI if action failed
+            if not result.get("success", False):
+                self._send_message({
+                    "type": "error",
+                    "message": result.get("message", "Action failed"),
+                    "realtime": True
+                })
+            
+        except Exception as e:
+            logger.error(f"Error executing function call: {e}", exc_info=True)
+            
+            # Send error response back to Gemini
+            if self.realtime_voice and func_id:
+                await self.realtime_voice.send_function_response(
+                    func_id,
+                    func_name,
+                    {"success": False, "error": str(e), "result": "error"}
+                )
+            
+            self._send_message({
+                "type": "error",
+                "message": f"Failed to execute action: {str(e)}",
+                "realtime": True
+            })
+    
+    async def _on_realtime_state_change(self, state: str):
+        """Handle real-time voice state changes"""
+        logger.info(f"Real-time voice state: {state}")
+        
+        if state == "active":
+            self._set_state(SystemState.LISTENING)
+        elif state == "inactive":
+            self._set_state(SystemState.IDLE)
 
     # ==================== Voice Event Handlers ====================
 
@@ -252,6 +454,9 @@ class PRISMCoordinator:
                 "content": response.text
             })
             
+            # Trim context to prevent unbounded growth
+            self._trim_conversation_context()
+            
             # Store assistant response
             if config.privacy.store_conversations:
                 await self.memory.store_interaction({
@@ -265,26 +470,30 @@ class PRISMCoordinator:
             await self._handle_response(response)
             
         except Exception as e:
-            logger.error(f"Error processing input: {e}")
+            logger.error(f"Error processing input: {e}", exc_info=True)
             error_message = "I encountered an error processing your request. Please try again."
             await self._deliver_response(error_message)
             self._set_state(SystemState.ERROR)
+            # Return to idle after brief delay
+            await asyncio.sleep(2)
+            self._set_state(SystemState.IDLE)
 
     async def _handle_response(self, response):
         """Handle AI response (text output and/or actions)"""
-        self._set_state(SystemState.RESPONDING)
-        
-        # Deliver text response
-        await self._deliver_response(response.text)
-        
-        # Execute actions if required
-        if response.requires_action and response.actions:
-            await self._execute_actions(response.actions)
-        
-        # Return to idle
-        self._set_state(SystemState.IDLE)
+        try:
+            self._set_state(SystemState.RESPONDING)
+            
+            # Deliver text response (non-blocking voice)
+            await self._deliver_response(response.text, wait_for_speech=False)
+            
+            # Execute actions if required
+            if response.requires_action and response.actions:
+                await self._execute_actions(response.actions)
+        finally:
+            # Always return to idle, even if there's an error
+            self._set_state(SystemState.IDLE)
 
-    async def _deliver_response(self, text: str):
+    async def _deliver_response(self, text: str, wait_for_speech: bool = True):
         """Deliver response through voice and UI"""
         # Send to UI
         self._send_message({
@@ -295,7 +504,11 @@ class PRISMCoordinator:
         
         # Speak response if voice feedback enabled
         if config.voice.enable_voice_feedback:
-            await self.voice.speak(text)
+            if wait_for_speech:
+                await self.voice.speak(text)
+            else:
+                # Fire and forget - don't block action execution
+                asyncio.create_task(self.voice.speak(text))
 
     async def _execute_actions(self, actions: list):
         """Execute system actions"""
@@ -315,9 +528,12 @@ class PRISMCoordinator:
                 
                 logger.info(f"Action result: success={result.get('success')}, message={result.get('message')}")
                 
-                # Notify user of action result
+                # Notify user of action result if requested
                 if result.get("notify", False):
                     await self._deliver_response(result.get("message", "Action completed"))
+                elif not result.get("success", False):
+                    # Always notify on failure
+                    await self._deliver_response(result.get("message", "Action failed"))
                     
             except Exception as e:
                 logger.error(f"Error executing action {action.get('type', 'unknown')}: {e}", exc_info=True)
@@ -381,6 +597,13 @@ class PRISMCoordinator:
         self.conversation_context = []
         self.current_conversation_id = None
         logger.info("Conversation context cleared")
+    
+    def _trim_conversation_context(self, max_messages: int = 20):
+        """Trim conversation context to prevent unbounded growth"""
+        if len(self.conversation_context) > max_messages:
+            # Keep the most recent messages
+            self.conversation_context = self.conversation_context[-max_messages:]
+            logger.debug(f"Trimmed conversation context to {max_messages} messages")
 
     async def get_conversation_history(self, limit: int = 20):
         """Get recent conversation history"""

@@ -17,7 +17,7 @@ let tray = null;
 let backendProcess = null;
 let wsServer = null;
 let wsClient = null;
-
+let isShuttingDown = false;
 const WS_PORT = 9876;
 
 // ============================================================================
@@ -57,8 +57,8 @@ function createWindow() {
     // Check if icon exists, use it if available
     const iconPath = path.join(__dirname, 'assets', 'icon.png');
     const windowOptions = {
-        width: 400,
-        height: 600,
+        width: 380,
+        height: 480,
         frame: false,
         transparent: true,
         resizable: false,
@@ -86,8 +86,8 @@ function createWindow() {
     const { width, height } = primaryDisplay.workAreaSize;
     
     mainWindow.setPosition(
-        width - 420,
-        height - 620
+        width - 400,
+        height - 500
     );
 
     // Window events
@@ -218,7 +218,11 @@ function setupWebSocketServer() {
         ws.on('close', () => {
             console.log('Backend disconnected');
             wsClient = null;
-            restartBackendIfNeeded();
+            
+            // Delay restart to avoid rapid restart loops
+            if (!isShuttingDown) {
+                setTimeout(() => restartBackendIfNeeded(), 2000);
+            }
         });
 
         ws.on('error', (error) => {
@@ -231,11 +235,20 @@ function setupWebSocketServer() {
 
 function startBackend() {
     if (backendProcess && !backendProcess.killed) return; // Already running
-    const pythonPath = process.platform === 'win32' ? 'python' : 'python3';
-    const backendScript = path.join(__dirname, '..', 'backend', 'main.py');
+    
+    // Use venv Python interpreter if it exists, otherwise fall back to system Python
+    const projectRoot = path.join(__dirname, '..');
+    const venvPython = process.platform === 'win32' 
+        ? path.join(projectRoot, 'venv', 'Scripts', 'python.exe')
+        : path.join(projectRoot, 'venv', 'bin', 'python3');
+    
+    const pythonPath = fs.existsSync(venvPython) ? venvPython : (process.platform === 'win32' ? 'python' : 'python3');
+    const backendScript = path.join(projectRoot, 'backend', 'main.py');
+
+    console.log(`Starting backend with Python: ${pythonPath}`);
 
     backendProcess = spawn(pythonPath, [backendScript], {
-        cwd: path.join(__dirname, '..'),
+        cwd: projectRoot,
         env: { ...process.env }
     });
 
@@ -244,11 +257,24 @@ function startBackend() {
     });
 
     backendProcess.stderr.on('data', (data) => {
-        console.error(`Backend Error: ${data}`);
+        const message = data.toString();
+        // Check if this is actually an error or just informational output
+        if (message.includes('ERROR') || message.includes('Exception') || message.includes('Traceback')) {
+            console.error(`Backend Error: ${message}`);
+        } else {
+            // Treat as info output (some modules use stderr for info)
+            console.log(`Backend: ${message}`);
+        }
     });
 
     backendProcess.on('close', (code) => {
         console.log(`Backend process exited with code ${code}`);
+        backendProcess = null;
+        
+        // Only auto-restart if it crashed unexpectedly (not manual shutdown)
+        if (code !== 0 && code !== null && !isShuttingDown) {
+            console.log('Backend crashed, will restart on next connection attempt');
+        }
     });
 
     console.log('Backend process started');
@@ -352,6 +378,10 @@ ipcMain.on('activate-voice', () => {
     sendToBackend({ type: 'activate_voice' });
 });
 
+ipcMain.on('toggle-realtime-voice', () => {
+    sendToBackend({ type: 'toggle_realtime_voice' });
+});
+
 ipcMain.on('send-text', (event, text) => {
     const ok = sendToBackend({ 
         type: 'process_text',
@@ -379,6 +409,7 @@ function restartBackendIfNeeded() {
 
 function cleanup() {
     console.log('Cleaning up...');
+    isShuttingDown = true;
 
     // Unregister shortcuts
     globalShortcut.unregisterAll();

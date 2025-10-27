@@ -13,6 +13,7 @@ const AppState = {
     currentState: 'idle',
     isListening: false,
     isProcessing: false,
+    isRealtimeActive: false,
     conversationHistory: [],
     settings: {
         theme: 'dark',
@@ -38,6 +39,7 @@ const elements = {
     
     // Input
     voiceBtn: document.getElementById('voiceBtn'),
+    realtimeBtn: document.getElementById('realtimeBtn'),
     textInput: document.getElementById('textInput'),
     sendBtn: document.getElementById('sendBtn'),
     
@@ -74,6 +76,9 @@ function setupEventListeners() {
     
     // Voice button
     elements.voiceBtn.addEventListener('click', activateVoice);
+    
+    // Realtime voice button
+    elements.realtimeBtn.addEventListener('click', toggleRealtimeVoice);
     
     // Text input
     elements.textInput.addEventListener('keypress', (e) => {
@@ -131,6 +136,21 @@ function activateVoice() {
     ipcRenderer.send('activate-voice');
 }
 
+function toggleRealtimeVoice() {
+    console.log('Toggling real-time voice...');
+    
+    // Toggle real-time voice mode (continuous streaming)
+    if (AppState.isRealtimeActive) {
+        AppState.isRealtimeActive = false;
+        elements.realtimeBtn.classList.remove('active');
+    } else {
+        AppState.isRealtimeActive = true;
+        elements.realtimeBtn.classList.add('active');
+    }
+    
+    ipcRenderer.send('toggle-realtime-voice');
+}
+
 // ============================================================================
 // Text Input
 // ============================================================================
@@ -142,11 +162,14 @@ function sendTextMessage() {
     
     console.log('Sending text:', text);
     
-    // Add user message to UI
+    // Add user message to UI immediately
     addMessage('user', text);
     
     // Clear input
     elements.textInput.value = '';
+    
+    // Mark this message as already displayed to prevent duplication
+    elements.textInput.dataset.lastSent = text;
     
     // Send to backend
     ipcRenderer.send('send-text', text);
@@ -387,11 +410,14 @@ function handleBackendMessage(data) {
             break;
         
         case 'user_message':
-            // Message already shown by sendTextMessage for text input
-            // For voice input, show it here
-            if (!elements.textInput.value) {
-                // This was from voice, not text input
+            // Only show if not already displayed (check against last sent message)
+            const lastSent = elements.textInput.dataset.lastSent || '';
+            if (data.content !== lastSent) {
+                // This was from voice input or a different message
                 addMessage('user', data.content, data.timestamp);
+            } else {
+                // Clear the marker after use
+                delete elements.textInput.dataset.lastSent;
             }
             break;
         
@@ -403,6 +429,20 @@ function handleBackendMessage(data) {
         case 'audio_level':
             // Update waveform based on audio level
             updateWaveformLevel(data.level);
+            break;
+        
+        case 'realtime_voice_started':
+            console.log('Real-time voice started');
+            AppState.isRealtimeActive = true;
+            elements.realtimeBtn.classList.add('active');
+            addMessage('system', 'Real-time voice mode activated. Continuous streaming is active - just start talking!');
+            break;
+        
+        case 'realtime_voice_stopped':
+            console.log('Real-time voice stopped');
+            AppState.isRealtimeActive = false;
+            elements.realtimeBtn.classList.remove('active');
+            addMessage('system', 'Real-time voice mode deactivated.');
             break;
         
         case 'error':
