@@ -521,6 +521,13 @@ Now analyze the user's request and respond ONLY with the JSON object, no other t
                     if response.candidates and len(response.candidates) > 0:
                         parts = response.candidates[0].content.parts
                         response_text = "".join([part.text for part in parts if hasattr(part, 'text')]).strip()
+                    
+                    # If still empty, check for safety ratings or blocked content
+                    if not response_text:
+                        if hasattr(response, 'prompt_feedback'):
+                            logger.error(f"Response blocked by safety filters: {response.prompt_feedback}")
+                        logger.warning("Empty response from LLM, using fallback parsing")
+                        return self._fallback_intent_parsing(user_input)
                 
                 logger.info(f"LLM intent response: {response_text}")
                 

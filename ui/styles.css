@@ -247,6 +247,17 @@ button, input {
     justify-content: center;
 }
 
+.matrix-display {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    filter: drop-shadow(0 0 8px rgba(138, 180, 248, 0.6));
+}
+
+.matrix-display svg {
+    display: block;
+}
+
 .orb-icon {
     filter: drop-shadow(0 0 10px rgba(255, 255, 255, 0.5));
     animation: rotate 20s linear infinite;

@@ -32,6 +32,7 @@ const elements = {
     orb: document.getElementById('prismOrb'),
     stateIndicator: document.getElementById('stateIndicator'),
     waveform: document.getElementById('waveform'),
+    matrixDisplay: document.getElementById('matrixDisplay'),
     
     // Messages
     messagesContainer: document.getElementById('messagesContainer'),
@@ -59,12 +60,19 @@ const elements = {
 };
 
 // ============================================================================
+// Matrix Display Instance
+// ============================================================================
+
+let matrixInstance = null;
+
+// ============================================================================
 // Initialization
 // ============================================================================
 
 function initialize() {
     setupEventListeners();
     setupWaveform();
+    setupMatrix();
     loadSettings();
     
     console.log('PRISM UI initialized');
@@ -141,14 +149,24 @@ function toggleRealtimeVoice() {
     
     // Toggle real-time voice mode (continuous streaming)
     if (AppState.isRealtimeActive) {
-        AppState.isRealtimeActive = false;
+        // Stopping realtime voice
+        addMessage('system', 'Stopping real-time voice mode...');
         elements.realtimeBtn.classList.remove('active');
+        elements.realtimeBtn.disabled = true;
     } else {
-        AppState.isRealtimeActive = true;
+        // Starting realtime voice
+        addMessage('system', 'Starting real-time voice mode... Please wait.');
         elements.realtimeBtn.classList.add('active');
+        elements.realtimeBtn.disabled = true;
+        setState('processing');
     }
     
     ipcRenderer.send('toggle-realtime-voice');
+    
+    // Re-enable button after 3 seconds (timeout)
+    setTimeout(() => {
+        elements.realtimeBtn.disabled = false;
+    }, 3000);
 }
 
 // ============================================================================
@@ -282,6 +300,9 @@ function setState(newState) {
     const stateText = elements.stateIndicator.querySelector('.state-text');
     stateText.textContent = newState.charAt(0).toUpperCase() + newState.slice(1);
     
+    // Update Matrix display
+    setMatrixState(newState);
+    
     // Handle state-specific actions
     switch (newState) {
         case 'listening':
@@ -299,6 +320,10 @@ function setState(newState) {
             hideTypingIndicator();
             break;
         
+        case 'executing':
+            // Executing state handled by matrix animation
+            break;
+        
         case 'idle':
             elements.voiceBtn.classList.remove('active');
             stopWaveformAnimation();
@@ -310,7 +335,64 @@ function setState(newState) {
             stopWaveformAnimation();
             hideTypingIndicator();
             break;
+        
+        case 'shutdown':
+            // Shutdown animation will play once
+            break;
     }
+}
+
+// ============================================================================
+// Matrix Display Setup
+// ============================================================================
+
+function setupMatrix() {
+    if (!elements.matrixDisplay) {
+        console.error('Matrix display element not found');
+        return;
+    }
+
+    // Initialize matrix with startup animation
+    matrixInstance = new Matrix(elements.matrixDisplay, {
+        rows: 7,
+        cols: 7,
+        size: 12,
+        gap: 3,
+        palette: {
+            on: 'rgba(138, 180, 248, 1)',
+            off: 'rgba(138, 180, 248, 0.08)'
+        },
+        brightness: 1,
+        autoplay: true,
+        loop: true,
+        ariaLabel: 'PRISM status indicator'
+    });
+
+    // Start with startup animation
+    matrixInstance.setFrames(MatrixPresets.startup.frames);
+    matrixInstance.options.fps = MatrixPresets.startup.fps;
+    matrixInstance.options.loop = false;
+    matrixInstance.play();
+
+    // After startup, transition to idle
+    setTimeout(() => {
+        setMatrixState('idle');
+    }, 1500);
+}
+
+function setMatrixState(state) {
+    if (!matrixInstance) return;
+
+    const preset = MatrixPresets[state];
+    if (!preset) {
+        console.warn(`No matrix preset for state: ${state}`);
+        return;
+    }
+
+    matrixInstance.setFrames(preset.frames);
+    matrixInstance.options.fps = preset.fps;
+    matrixInstance.options.loop = state !== 'startup' && state !== 'shutdown';
+    matrixInstance.play();
 }
 
 // ============================================================================
@@ -435,14 +517,18 @@ function handleBackendMessage(data) {
             console.log('Real-time voice started');
             AppState.isRealtimeActive = true;
             elements.realtimeBtn.classList.add('active');
-            addMessage('system', 'Real-time voice mode activated. Continuous streaming is active - just start talking!');
+            elements.realtimeBtn.disabled = false;
+            addMessage('system', '🎙️ Real-time voice mode activated! Just start talking naturally - no need to press any buttons.');
+            setState('listening');
             break;
         
         case 'realtime_voice_stopped':
             console.log('Real-time voice stopped');
             AppState.isRealtimeActive = false;
             elements.realtimeBtn.classList.remove('active');
-            addMessage('system', 'Real-time voice mode deactivated.');
+            elements.realtimeBtn.disabled = false;
+            addMessage('system', 'Real-time voice mode deactivated. Switched back to push-to-talk mode.');
+            setState('idle');
             break;
         
         case 'error':

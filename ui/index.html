@@ -43,13 +43,12 @@
                 <div class="orb-inner">
                     <div class="orb-pulse"></div>
                     <div class="orb-core">
-                        <svg class="orb-icon" width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-                            <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"></path>
-                        </svg>
+                        <!-- Matrix Display -->
+                        <div id="matrixDisplay" class="matrix-display"></div>
                     </div>
                 </div>
-                <!-- Waveform Visualization -->
-                <canvas id="waveform" class="waveform"></canvas>
+                <!-- Waveform Visualization (kept for fallback) -->
+                <canvas id="waveform" class="waveform" style="display: none;"></canvas>
             </div>
             
             <!-- State Indicator -->
@@ -84,7 +83,7 @@
                     <line x1="8" y1="23" x2="16" y2="23"></line>
                 </svg>
             </button>
-            <button class="realtime-btn" id="realtimeBtn" title="Toggle Real-time Voice">
+            <button class="realtime-btn" id="realtimeBtn" title="Real-time Voice (Continuous) - Click to toggle continuous voice mode">
                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                     <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"></path>
                     <path d="M19 10v2a7 7 0 0 1-14 0v-2"></path>
@@ -144,6 +143,7 @@
     </div>
 
     <!-- Scripts -->
+    <script src="components/matrix.js"></script>
     <script src="renderer.js"></script>
 </body>
 </html>

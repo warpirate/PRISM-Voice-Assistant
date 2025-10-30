@@ -9,7 +9,7 @@ setuptools==69.0.0            # Required for distutils (Python 3.12+)
 
 # AI Integration
 google-generativeai==0.8.3    # Google Gemini API for language understanding
-google-genai==0.3.0           # Google GenAI client for Live API support (WebSocket streaming)
+google-genai>=0.4.0           # Google GenAI client for Live API support (WebSocket streaming)
 numpy>=1.26.0                 # Array operations for audio processing (Python 3.12 compatible)
 librosa==0.10.2.post1         # Audio resampling and format conversion
 soundfile==0.12.1             # Audio file I/O (PCM format conversion)
