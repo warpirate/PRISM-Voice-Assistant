@@ -61,10 +61,12 @@ class AIEngine:
         self.system_prompt = """You are PRISM (Personal Response Interface for System Management), 
         my personal AI assistant. I am here to help you with:
 
-        1. **System Control**: Opening applications, managing files, executing commands
-        2. **Information Retrieval**: Answering questions, searching the web, providing knowledge
-        3. **Productivity**: Creating files, organizing tasks, managing workflows
-        4. **Natural Conversation**: Engaging in helpful, friendly dialogue
+        1. **System Control**: Opening/closing applications, managing files, executing commands
+        2. **UI Automation**: Controlling applications via keyboard/mouse, clicking buttons, filling forms
+        3. **Information Retrieval**: Answering questions, searching the web, providing knowledge
+        4. **Productivity**: Creating files, organizing tasks, managing workflows
+        5. **System Monitoring**: RAM usage, running processes, system information
+        6. **Natural Conversation**: Engaging in helpful, friendly dialogue
 
         **My Personality**: I am your personal assistant - helpful, efficient, and natural. I respond like a capable assistant, not a system. I speak directly and personally to you.
 
@@ -74,34 +76,98 @@ class AIEngine:
         1. I respond naturally to you
         2. I automatically handle the action in the background
         3. I include the required action tag (which you won't see)
+        4. For multi-task queries, I can perform multiple actions in sequence
+        5. I can control applications using keyboard shortcuts and mouse clicks
+        6. I break down complex tasks into step-by-step MCP actions automatically
+        
+        **Breaking Down Complex Tasks**:
+        - "Open YouTube and search for X" = open browser → navigate to youtube.com → search for X
+        - "Create new file in app" = focus app → press new file hotkey
+        - "Fill form with data" = focus field → type data → tab to next field → repeat
+        - Always use the actual keyboard shortcuts and navigation patterns users would use
 
         **Action Format** (required for system actions):
         ACTION: {"type": "action_type", "parameters": {...}}
 
         Available actions:
         - open_application: {"name": "app_name"} 
+        - close_application: {"name": "app_name"}
         - open_file: {"path": "file_path"}
         - search_files: {"query": "search_term", "location": "directory"}
         - create_file: {"path": "file_path", "content": "file_content"}
         - web_search: {"query": "search_query"}
         - system_command: {"command": "command_to_execute"}
+        - get_memory_info: {} (get RAM usage)
+        - mcp_focus_window: {"title": "window_title"} (focus a window)
+        - mcp_hotkey: {"keys": "ctrl+n"} (press keyboard shortcut)
+        - mcp_type_text: {"text": "text to type"} (type text)
+        - mcp_press_key: {"key": "enter"} (press single key)
+        - mcp_click: {"x": 100, "y": 200} (click at coordinates)
+
+        **UI Automation Example**:
+        User: "create new project in windsurf"
+        Assistant: "I'll create a new project in Windsurf for you.
+        ACTION: {"type": "mcp_focus_window", "parameters": {"title": "windsurf"}}
+        ACTION: {"type": "mcp_hotkey", "parameters": {"keys": "ctrl+shift+n"}}
+        
+        I've opened the new project dialog in Windsurf."
+
+        **Browser Automation Example**:
+        User: "open youtube and search for python video and play it"
+        Assistant: "I'll open YouTube, search for a Python video, and play it for you.
+        ACTION: {"type": "open_application", "parameters": {"name": "chrome"}}
+        ACTION: {"type": "mcp_focus_window", "parameters": {"title": "chrome"}}
+        ACTION: {"type": "mcp_hotkey", "parameters": {"keys": "ctrl+l"}}
+        ACTION: {"type": "mcp_type_text", "parameters": {"text": "youtube.com"}}
+        ACTION: {"type": "mcp_press_key", "parameters": {"key": "enter"}}
+        ACTION: {"type": "mcp_hotkey", "parameters": {"keys": "ctrl+k"}}
+        ACTION: {"type": "mcp_type_text", "parameters": {"text": "python tutorial"}}
+        ACTION: {"type": "mcp_press_key", "parameters": {"key": "enter"}}
+        
+        I've opened YouTube, searched for Python videos, and the results are loading."
+
+        **WhatsApp Messaging Example** (CRITICAL - Follow this exact pattern):
+        User: "send message to John saying hello"
+        Assistant: "I'll send that message to John on WhatsApp.
+        ACTION: {"type": "open_application", "parameters": {"name": "whatsapp"}}
+        ACTION: {"type": "mcp_focus_window", "parameters": {"title": "whatsapp"}}
+        ACTION: {"type": "mcp_hotkey", "parameters": {"keys": "ctrl+f"}}
+        ACTION: {"type": "mcp_type_text", "parameters": {"text": "John"}}
+        ACTION: {"type": "mcp_press_key", "parameters": {"key": "down"}}
+        ACTION: {"type": "mcp_press_key", "parameters": {"key": "enter"}}
+        ACTION: {"type": "mcp_type_text", "parameters": {"text": "hello"}}
+        ACTION: {"type": "mcp_press_key", "parameters": {"key": "enter"}}
+        
+        Message sent to John."
+        
+        **IMPORTANT for WhatsApp/Messaging Apps**:
+        - After typing contact name in search, press DOWN arrow to select from results
+        - Then press ENTER to open the chat
+        - Only then type the message (it will go in the message field, not search)
+        - Press ENTER again to send
+
+        **Multi-Task Example**:
+        User: "close chrome and tell me how much RAM was freed"
+        Assistant: "I'll close Chrome and check the RAM savings for you.
+        ACTION: {"type": "get_memory_info", "parameters": {}}
+        ACTION: {"type": "close_application", "parameters": {"name": "chrome"}}
+        ACTION: {"type": "get_memory_info", "parameters": {}}
+        
+        Based on the memory readings, closing Chrome freed up approximately X GB of RAM."
 
         **Example Responses**:
         User: "Open notepad"
         Assistant: "I'll open Notepad for you right away.
         ACTION: {"type": "open_application", "parameters": {"name": "notepad"}}"
 
-        User: "Open crome" (typo)
-        Assistant: "I'll open Chrome for you.
-        ACTION: {"type": "open_application", "parameters": {"name": "chrome"}}"
+        User: "close edge"
+        Assistant: "Closing Microsoft Edge for you.
+        ACTION: {"type": "close_application", "parameters": {"name": "edge"}}"
 
-        User: "Launch calc"
-        Assistant: "Opening Calculator for you.
-        ACTION: {"type": "open_application", "parameters": {"name": "calc"}}"
-
-        User: "Search for Python tutorials"
-        Assistant: "I'll search for Python tutorials for you.
-        ACTION: {"type": "web_search", "parameters": {"query": "Python tutorials"}}"
+        User: "type hello world in notepad"
+        Assistant: "I'll type that for you in Notepad.
+        ACTION: {"type": "mcp_focus_window", "parameters": {"title": "notepad"}}
+        ACTION: {"type": "mcp_type_text", "parameters": {"text": "hello world"}}"
         """
 
     async def initialize(self):
@@ -119,14 +185,36 @@ class AIEngine:
                     raise ValueError("Gemini API key not configured")
                 
                 genai.configure(api_key=config.ai.gemini_api_key)
+                
+                # Configure safety settings to allow all content
+                safety_settings = [
+                    {
+                        "category": "HARM_CATEGORY_HARASSMENT",
+                        "threshold": "BLOCK_NONE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_HATE_SPEECH",
+                        "threshold": "BLOCK_NONE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+                        "threshold": "BLOCK_NONE"
+                    },
+                    {
+                        "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
+                        "threshold": "BLOCK_NONE"
+                    }
+                ]
+                
                 self.model = genai.GenerativeModel(
                     model_name=config.ai.model,
                     generation_config={
                         "temperature": config.ai.temperature,
                         "max_output_tokens": config.ai.max_tokens,
-                    }
+                    },
+                    safety_settings=safety_settings
                 )
-                logger.success("Gemini initialized")
+                logger.success("Gemini initialized with safety filters disabled")
                 
             else:
                 logger.warning(f"Unknown AI provider: {self.provider}, using fallback")
@@ -500,6 +588,22 @@ Response: {{
   "confidence": 0.95
 }}
 
+User: "send message to John on whatsapp saying hello"
+Response: {{
+  "agent_type": "conversational",
+  "task_type": "send_message",
+  "parameters": {{
+    "app": "whatsapp",
+    "recipient": "John",
+    "message": "hello"
+  }},
+  "confidence": 0.95
+}}
+
+IMPORTANT: For messaging tasks (send message, text someone, message on whatsapp/telegram/etc), 
+always use agent_type "conversational" and task_type "send_message". The LLM will handle the 
+UI automation directly - agents are NOT needed for messaging.
+
 Now analyze the user's request and respond ONLY with the JSON object, no other text:
 """
         
@@ -666,6 +770,159 @@ Now analyze the user's request and respond ONLY with the JSON object, no other t
             'task_type': 'chat',
             'parameters': {'message': user_input},
             'confidence': 0.5
+        }
+    
+    async def parse_app_control_intent(self, user_input: str) -> Dict[str, Any]:
+        """
+        Parse app control commands (close, minimize, maximize, focus) using LLM
+        
+        Returns:
+            Dict with:
+            - action: The action to perform (close, minimize, maximize, focus)
+            - app_name: The application name to target
+            - confidence: Confidence level (0.0 to 1.0)
+        """
+        logger.info(f"Parsing app control intent: {user_input}")
+        
+        # Build a prompt specifically for app control parsing
+        intent_prompt = f"""You are PRISM's app control parser. Analyze the user's request and extract structured information.
+
+User request: "{user_input}"
+
+Analyze this request and respond with a JSON object containing:
+1. "action": The action to perform (close, minimize, maximize, or focus)
+2. "app_name": The exact application name mentioned (e.g., "Chrome", "Notepad", "Windsurf", "Visual Studio Code")
+3. "confidence": Your confidence level (0.0 to 1.0)
+
+IMPORTANT: Extract the EXACT application name as mentioned by the user. Do NOT abbreviate or modify it.
+
+Examples:
+
+User: "close chrome"
+Response: {{
+  "action": "close",
+  "app_name": "Chrome",
+  "confidence": 0.95
+}}
+
+User: "close windsurf"
+Response: {{
+  "action": "close",
+  "app_name": "Windsurf",
+  "confidence": 0.98
+}}
+
+User: "minimize notepad"
+Response: {{
+  "action": "minimize",
+  "app_name": "Notepad",
+  "confidence": 0.95
+}}
+
+User: "switch to visual studio code"
+Response: {{
+  "action": "focus",
+  "app_name": "Visual Studio Code",
+  "confidence": 0.9
+}}
+
+User: "maximize the browser"
+Response: {{
+  "action": "maximize",
+  "app_name": "browser",
+  "confidence": 0.7
+}}
+
+Now analyze the user's request and respond ONLY with the JSON object, no other text:
+"""
+        
+        try:
+            if self.provider == "gemini" and self.model:
+                # Get LLM response
+                response = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: self.model.generate_content(intent_prompt)
+                )
+                
+                # Handle multi-part responses
+                try:
+                    response_text = response.text.strip()
+                except Exception as e:
+                    logger.warning(f"Could not access response.text: {e}, using parts")
+                    response_text = ""
+                    if response.candidates and len(response.candidates) > 0:
+                        parts = response.candidates[0].content.parts
+                        response_text = "".join([part.text for part in parts if hasattr(part, 'text')]).strip()
+                    
+                    if not response_text:
+                        logger.warning("Empty response from LLM, using fallback parsing")
+                        return self._fallback_app_control_parsing(user_input)
+                
+                logger.info(f"LLM app control response: {response_text}")
+                
+                # Extract JSON from response
+                if "```json" in response_text:
+                    json_match = re.search(r'```json\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+                    if json_match:
+                        response_text = json_match.group(1)
+                elif "```" in response_text:
+                    json_match = re.search(r'```\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+                    if json_match:
+                        response_text = json_match.group(1)
+                
+                # Parse JSON
+                intent_data = json.loads(response_text)
+                logger.info(f"Parsed app control intent: {intent_data}")
+                return intent_data
+                
+            else:
+                # Fallback: Simple keyword-based parsing
+                return self._fallback_app_control_parsing(user_input)
+                
+        except Exception as e:
+            logger.error(f"Error parsing app control intent: {e}")
+            return self._fallback_app_control_parsing(user_input)
+    
+    def _fallback_app_control_parsing(self, user_input: str) -> Dict[str, Any]:
+        """Fallback app control parsing using keywords"""
+        user_lower = user_input.lower()
+        
+        # Determine action
+        action = None
+        if 'close' in user_lower:
+            action = 'close'
+        elif 'minimize' in user_lower:
+            action = 'minimize'
+        elif 'maximize' in user_lower:
+            action = 'maximize'
+        elif 'focus' in user_lower or 'switch to' in user_lower:
+            action = 'focus'
+        
+        if not action:
+            return {'action': None, 'app_name': None, 'confidence': 0.0}
+        
+        # Extract app name - take words after the action keyword
+        words = user_input.split()
+        app_name = None
+        
+        for i, word in enumerate(words):
+            if word.lower() in ['close', 'minimize', 'maximize', 'focus', 'switch']:
+                # Take remaining words as app name
+                if i + 1 < len(words):
+                    # Skip "to" if present
+                    start_idx = i + 2 if i + 1 < len(words) and words[i + 1].lower() == 'to' else i + 1
+                    if start_idx < len(words):
+                        app_name = ' '.join(words[start_idx:])
+                        break
+        
+        # Clean up common words
+        if app_name:
+            app_name = app_name.replace('the ', '').strip()
+        
+        return {
+            'action': action,
+            'app_name': app_name,
+            'confidence': 0.7 if app_name else 0.3
         }
 
     async def shutdown(self):

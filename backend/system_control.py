@@ -23,9 +23,10 @@ class SystemControl:
     - System commands
     """
 
-    def __init__(self):
+    def __init__(self, mcp_client=None):
         self.system = platform.system()
         self.current_dir = Path.home()
+        self.mcp_client = mcp_client
         
         # Scan installed applications at startup
         logger.info("Scanning installed applications...")
@@ -54,6 +55,7 @@ class SystemControl:
             "discord": "Discord.exe" if self.system == "Windows" else "discord",
             "slack": "slack.exe" if self.system == "Windows" else "slack",
             "teams": "Teams.exe" if self.system == "Windows" else "teams",
+            "whatsapp": "WhatsApp.exe" if self.system == "Windows" else "whatsapp",
             
             # Office
             "word": "WINWORD.EXE",
@@ -75,6 +77,9 @@ class SystemControl:
             if action_type == "open_application":
                 return await self.open_application(parameters.get("name"))
             
+            elif action_type == "close_application":
+                return await self.close_application(parameters.get("name"))
+            
             elif action_type == "open_file":
                 return await self.open_file(parameters.get("path"))
             
@@ -95,6 +100,24 @@ class SystemControl:
             
             elif action_type == "system_command":
                 return await self.execute_command(parameters.get("command"))
+            
+            elif action_type == "get_memory_info":
+                return await self.get_memory_info()
+            
+            elif action_type == "mcp_focus_window":
+                return await self.mcp_focus_window(parameters.get("title"))
+            
+            elif action_type == "mcp_hotkey":
+                return await self.mcp_hotkey(parameters.get("keys"))
+            
+            elif action_type == "mcp_type_text":
+                return await self.mcp_type_text(parameters.get("text"))
+            
+            elif action_type == "mcp_press_key":
+                return await self.mcp_press_key(parameters.get("key"))
+            
+            elif action_type == "mcp_click":
+                return await self.mcp_click(parameters.get("x"), parameters.get("y"))
             
             else:
                 return {
@@ -637,6 +660,186 @@ class SystemControl:
         except Exception as e:
             logger.error(f"Error getting running applications: {e}")
             return []
+
+    async def close_application(self, app_name: str) -> Dict[str, Any]:
+        """
+        Close an application using MCP
+        """
+        try:
+            if not self.mcp_client:
+                return {"success": False, "message": "MCP client not available", "notify": True}
+            
+            # Normalize app name
+            app_name_normalized = app_name.lower().strip()
+            for suffix in [' app', ' browser', ' window', ' application']:
+                app_name_normalized = app_name_normalized.replace(suffix, '')
+            app_name_normalized = app_name_normalized.strip()
+            
+            result = await self.mcp_client.close_application_smart(app_name_normalized)
+            
+            if result.success:
+                return {
+                    "success": True,
+                    "message": f"Closed {app_name}",
+                    "notify": True
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": result.error or f"Could not close {app_name}",
+                    "notify": True
+                }
+        except Exception as e:
+            logger.error(f"Error closing application {app_name}: {e}")
+            return {
+                "success": False,
+                "message": f"Error closing {app_name}: {str(e)}",
+                "notify": True
+            }
+    
+    async def get_memory_info(self) -> Dict[str, Any]:
+        """
+        Get system memory information using MCP
+        """
+        try:
+            if not self.mcp_client:
+                return {"success": False, "message": "MCP client not available", "notify": False}
+            
+            import json
+            
+            result = await self.mcp_client.call_tool("get_memory_info")
+            
+            if result.success:
+                mem_data = json.loads(result.data)
+                return {
+                    "success": True,
+                    "message": f"RAM: {mem_data['used_gb']:.1f}GB used / {mem_data['total_gb']:.1f}GB total ({mem_data['percent_used']:.1f}% used)",
+                    "data": mem_data,
+                    "notify": False
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": "Could not retrieve memory information",
+                    "notify": False
+                }
+        except Exception as e:
+            logger.error(f"Error getting memory info: {e}")
+            return {
+                "success": False,
+                "message": f"Error: {str(e)}",
+                "notify": False
+            }
+    
+    async def mcp_focus_window(self, title: str) -> Dict[str, Any]:
+        """Focus a window by title using MCP"""
+        try:
+            if not self.mcp_client:
+                return {"success": False, "message": "MCP client not available", "notify": False}
+            
+            import json
+            
+            result = await self.mcp_client.call_tool("focus_window", title=title)
+            
+            if result.success and result.data:
+                response = json.loads(result.data)
+                if response.get("success"):
+                    return {"success": True, "message": response.get("message", f"Focused {title}"), "notify": False}
+                else:
+                    return {"success": False, "message": response.get("message", f"Could not focus {title}"), "notify": False}
+            else:
+                return {"success": False, "message": result.error or f"Could not focus {title}", "notify": False}
+        except Exception as e:
+            logger.error(f"Error focusing window: {e}")
+            return {"success": False, "message": str(e), "notify": False}
+    
+    async def mcp_hotkey(self, keys: str) -> Dict[str, Any]:
+        """Press hotkey combination using MCP"""
+        try:
+            if not self.mcp_client:
+                return {"success": False, "message": "MCP client not available", "notify": False}
+            
+            import json
+            
+            result = await self.mcp_client.call_tool("hotkey", key_combo=keys)
+            
+            if result.success and result.data:
+                response = json.loads(result.data)
+                if response.get("success"):
+                    return {"success": True, "message": response.get("message", f"Pressed {keys}"), "notify": False}
+                else:
+                    return {"success": False, "message": response.get("message", f"Could not press {keys}"), "notify": False}
+            else:
+                return {"success": False, "message": result.error or f"Could not press {keys}", "notify": False}
+        except Exception as e:
+            logger.error(f"Error pressing hotkey: {e}")
+            return {"success": False, "message": str(e), "notify": False}
+    
+    async def mcp_type_text(self, text: str) -> Dict[str, Any]:
+        """Type text using MCP"""
+        try:
+            if not self.mcp_client:
+                return {"success": False, "message": "MCP client not available", "notify": False}
+            
+            import json
+            
+            result = await self.mcp_client.call_tool("type_text", text=text)
+            
+            if result.success and result.data:
+                response = json.loads(result.data)
+                if response.get("success"):
+                    return {"success": True, "message": response.get("message", "Typed text"), "notify": False}
+                else:
+                    return {"success": False, "message": response.get("message", "Could not type text"), "notify": False}
+            else:
+                return {"success": False, "message": result.error or "Could not type text", "notify": False}
+        except Exception as e:
+            logger.error(f"Error typing text: {e}")
+            return {"success": False, "message": str(e), "notify": False}
+    
+    async def mcp_press_key(self, key: str) -> Dict[str, Any]:
+        """Press a single key using MCP"""
+        try:
+            if not self.mcp_client:
+                return {"success": False, "message": "MCP client not available", "notify": False}
+            
+            import json
+            
+            result = await self.mcp_client.call_tool("press_key", key=key)
+            
+            if result.success and result.data:
+                response = json.loads(result.data)
+                if response.get("success"):
+                    return {"success": True, "message": response.get("message", f"Pressed {key}"), "notify": False}
+                else:
+                    return {"success": False, "message": response.get("message", f"Could not press {key}"), "notify": False}
+            else:
+                return {"success": False, "message": result.error or f"Could not press {key}", "notify": False}
+        except Exception as e:
+            logger.error(f"Error pressing key: {e}")
+            return {"success": False, "message": str(e), "notify": False}
+    
+    async def mcp_click(self, x: int, y: int) -> Dict[str, Any]:
+        """Click at coordinates using MCP"""
+        try:
+            if not self.mcp_client:
+                return {"success": False, "message": "MCP client not available", "notify": False}
+            
+            import json
+            
+            result = await self.mcp_client.call_tool("click_at_coordinates", x=x, y=y)
+            
+            if result.success and result.data:
+                response = json.loads(result.data)
+                if response.get("success"):
+                    return {"success": True, "message": response.get("message", f"Clicked at ({x}, {y})"), "notify": False}
+                else:
+                    return {"success": False, "message": response.get("message", "Could not click"), "notify": False}
+            else:
+                return {"success": False, "message": result.error or "Could not click", "notify": False}
+        except Exception as e:
+            logger.error(f"Error clicking: {e}")
+            return {"success": False, "message": str(e), "notify": False}
 
     def get_system_info(self) -> Dict[str, Any]:
         """Get system information"""

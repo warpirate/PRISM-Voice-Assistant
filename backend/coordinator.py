@@ -24,6 +24,7 @@ from backend.agents import (
     PersonalWebAgent,
     PersonalProductivityAgent
 )
+from backend.mcp_client import PRISMMCPClient, mcp_client
 
 
 class SystemState(Enum):
@@ -61,6 +62,10 @@ class PRISMCoordinator:
         self.agent_coordinator: Optional[AgentCoordinator] = None
         self.agents_enabled = True  # Toggle for agent-based processing
         
+        # Initialize MCP client for screen visibility and app control
+        self.mcp_client: Optional[PRISMMCPClient] = None
+        self.mcp_enabled = True  # Toggle for MCP-based operations
+        
         # Voice mode
         self.realtime_mode = False  # Toggle between traditional and real-time voice
         
@@ -71,6 +76,11 @@ class PRISMCoordinator:
         # Conversation context
         self.current_conversation_id: Optional[str] = None
         self.conversation_context: list = []
+        
+        # System context cache (to avoid redundant MCP calls)
+        self._system_context_cache: Optional[Dict[str, Any]] = None
+        self._context_cache_time: Optional[datetime] = None
+        self._context_cache_ttl: int = 5  # Cache TTL in seconds
         
         logger.info("PRISM Coordinator initialized")
 
@@ -88,6 +98,10 @@ class PRISMCoordinator:
             
             # Initialize agent system
             await self._initialize_agents()
+            
+            # Initialize MCP client
+            if self.mcp_enabled:
+                await self._initialize_mcp_client()
             
             # Register callbacks
             self.voice.on_wake_word = self._on_wake_word_detected
@@ -122,6 +136,10 @@ class PRISMCoordinator:
             # Shutdown agents first
             if self.agent_registry:
                 await self.agent_registry.shutdown_all()
+            
+            # Shutdown MCP client
+            if self.mcp_client:
+                await self.mcp_client.shutdown()
             
             await self.voice.shutdown()
             await self.ai.shutdown()
@@ -467,6 +485,32 @@ class PRISMCoordinator:
                 "timestamp": datetime.now().isoformat()
             })
             
+            # Try MCP query handling first (for screen visibility and app control)
+            mcp_response = await self.handle_mcp_query(user_input)
+            if mcp_response:
+                # MCP handled the query directly
+                logger.info("Query handled by MCP system")
+                
+                # Store MCP response
+                self.conversation_context.append({
+                    "role": "assistant",
+                    "content": mcp_response
+                })
+                
+                if config.privacy.store_conversations:
+                    await self.memory.store_interaction({
+                        "role": "assistant",
+                        "content": mcp_response,
+                        "timestamp": datetime.now().isoformat(),
+                        "mcp_handled": True,
+                        "requires_action": False
+                    })
+                
+                # Deliver response
+                await self._deliver_response(mcp_response)
+                self._set_state(SystemState.IDLE)
+                return
+            
             # Try agent-based execution first (agent-centric approach)
             agent_result = await self._try_agent_execution(user_input)
             
@@ -507,25 +551,28 @@ class PRISMCoordinator:
                 system_context=await self._get_system_context()
             )
             
-            # Add response to context
-            self.conversation_context.append({
-                "role": "assistant",
-                "content": response.text
-            })
-            
-            # Trim context to prevent unbounded growth
-            self._trim_conversation_context()
-            
-            # Store assistant response
-            if config.privacy.store_conversations:
-                await self.memory.store_interaction({
+            # If the response includes actions, we'll handle the response in _execute_actions
+            # to avoid duplicate notifications
+            if not response.requires_action or not response.actions:
+                # Add response to context
+                self.conversation_context.append({
                     "role": "assistant",
-                    "content": response.text,
-                    "timestamp": datetime.now().isoformat(),
-                    "requires_action": response.requires_action
+                    "content": response.text
                 })
+                
+                # Trim context to prevent unbounded growth
+                self._trim_conversation_context()
+                
+                # Store assistant response
+                if config.privacy.store_conversations:
+                    await self.memory.store_interaction({
+                        "role": "assistant",
+                        "content": response.text,
+                        "timestamp": datetime.now().isoformat(),
+                        "requires_action": response.requires_action
+                    })
             
-            # Handle response
+            # Handle response (this will handle both text and actions)
             await self._handle_response(response)
             
         except Exception as e:
@@ -542,12 +589,14 @@ class PRISMCoordinator:
         try:
             self._set_state(SystemState.RESPONDING)
             
-            # Deliver text response (non-blocking voice)
-            await self._deliver_response(response.text, wait_for_speech=False)
+            # Only deliver the text response if there are no actions to execute
+            # or if the response text is not just a description of the actions
+            if not response.requires_action or not response.actions:
+                await self._deliver_response(response.text, wait_for_speech=False)
             
             # Execute actions if required
             if response.requires_action and response.actions:
-                await self._execute_actions(response.actions)
+                await self._execute_actions(response.actions, response.text)
         finally:
             # Always return to idle, even if there's an error
             self._set_state(SystemState.IDLE)
@@ -569,14 +618,23 @@ class PRISMCoordinator:
                 # Fire and forget - don't block action execution
                 asyncio.create_task(self.voice.speak(text))
 
-    async def _execute_actions(self, actions: list):
-        """Execute system actions"""
+    async def _execute_actions(self, actions: list, action_description: str = None):
+        """Execute system actions
+        
+        Args:
+            actions: List of actions to execute
+            action_description: Optional description of the actions being taken
+        """
         if not actions:
             logger.warning("No actions to execute")
             return
         
         self._set_state(SystemState.EXECUTING)
         logger.info(f"Executing {len(actions)} action(s): {[a.get('type') for a in actions]}")
+        
+        # If we have an action description, deliver it as a response
+        if action_description:
+            await self._deliver_response(action_description, wait_for_speech=False)
         
         for action in actions:
             try:
@@ -586,6 +644,20 @@ class PRISMCoordinator:
                 result = await self.system_control.execute_action(action)
                 
                 logger.info(f"Action result: success={result.get('success')}, message={result.get('message')}")
+                
+                # Add delays after specific actions to allow UI to respond
+                if action_type == 'open_application' and result.get('success', False):
+                    logger.debug("Waiting 1.5s for application window to appear...")
+                    await asyncio.sleep(1.5)
+                elif action_type in ['mcp_type_text', 'mcp_press_key', 'mcp_hotkey']:
+                    # Short delay after keyboard actions for UI to process
+                    await asyncio.sleep(0.4)
+                elif action_type == 'mcp_focus_window':
+                    # Delay after focusing window
+                    await asyncio.sleep(0.3)
+                elif action_type == 'mcp_click':
+                    # Delay after clicking
+                    await asyncio.sleep(0.3)
                 
                 # Notify user of action result if requested
                 if result.get("notify", False):
@@ -598,14 +670,45 @@ class PRISMCoordinator:
                 logger.error(f"Error executing action {action.get('type', 'unknown')}: {e}", exc_info=True)
                 await self._deliver_response(f"I couldn't complete that action: {str(e)}")
 
-    async def _get_system_context(self) -> Dict[str, Any]:
-        """Get current system context for AI"""
-        return {
+    async def _get_system_context(self, force_refresh: bool = False) -> Dict[str, Any]:
+        """Get current system context for AI processing with caching"""
+        # Check cache validity
+        now = datetime.now()
+        if not force_refresh and self._system_context_cache and self._context_cache_time:
+            cache_age = (now - self._context_cache_time).total_seconds()
+            if cache_age < self._context_cache_ttl:
+                logger.debug(f"Using cached system context (age: {cache_age:.1f}s)")
+                return self._system_context_cache
+        
+        # Build fresh context
+        context = {
+            "timestamp": now.isoformat(),
+            "state": self.state.value,
+            "running_applications": self.system_control.get_running_applications()[:10],
             "current_directory": self.system_control.get_current_directory(),
-            "running_applications": self.system_control.get_running_applications(),
-            "system_info": self.system_control.get_system_info(),
-            "recent_memory": await self.memory.get_recent_interactions(limit=5)
         }
+        
+        # Add MCP context if available (expensive operation)
+        if self.mcp_enabled and self.mcp_client:
+            try:
+                mcp_context = await self.mcp_client.get_screen_context()
+                if mcp_context.success:
+                    context["screen_context"] = mcp_context.data
+                    context["mcp_available"] = True
+                else:
+                    context["mcp_available"] = False
+                    logger.warning(f"MCP context failed: {mcp_context.error}")
+            except Exception as e:
+                logger.error(f"Error getting MCP context: {e}")
+                context["mcp_available"] = False
+        else:
+            context["mcp_available"] = False
+        
+        # Update cache
+        self._system_context_cache = context
+        self._context_cache_time = now
+        
+        return context
 
     # ==================== State Management ====================
 
@@ -676,6 +779,28 @@ class PRISMCoordinator:
             logger.error(f"Failed to initialize agents: {str(e)}")
             self.agents_enabled = False
     
+    async def _initialize_mcp_client(self):
+        """Initialize MCP client for screen visibility and app control"""
+        try:
+            logger.info("Initializing MCP client...")
+            
+            # Create MCP client instance
+            self.mcp_client = PRISMMCPClient()
+            
+            # Initialize connection to Windows MCP server
+            await self.mcp_client.initialize()
+            
+            # Update SystemControl with MCP client reference
+            self.system_control.mcp_client = self.mcp_client
+            
+            # Get available tools
+            tools = await self.mcp_client.get_available_tools()
+            logger.success(f"MCP client initialized with {len(tools)} tools")
+            
+        except Exception as e:
+            logger.error(f"Failed to initialize MCP client: {str(e)}")
+            self.mcp_enabled = False
+    
     async def _try_agent_execution(self, user_input: str) -> Optional[Dict[str, Any]]:
         """
         Try to execute task using agent system
@@ -687,11 +812,11 @@ class PRISMCoordinator:
             return None
         
         try:
-            # Step 1: Use AI engine to parse user intent
+            # Step 1: Use AI engine to parse user intent (no expensive context needed)
             logger.info("Parsing user intent with LLM...")
             intent_data = await self.ai.parse_user_intent(
                 user_input,
-                context=await self._get_system_context()
+                context=None  # Intent parsing doesn't need full system context
             )
             
             logger.info(f"Parsed intent: agent_type={intent_data.get('agent_type')}, task={intent_data.get('task_type')}, params={intent_data.get('parameters')}")
@@ -736,9 +861,128 @@ class PRISMCoordinator:
         return {
             'enabled': self.agents_enabled,
             'statistics': stats,
-            'health': health
+            'health': health,
+            'mcp_available': self.mcp_enabled and self.mcp_client is not None,
+            'mcp_tools': len(await self.mcp_client.get_available_tools()) if self.mcp_enabled and self.mcp_client else 0
         }
 
+    async def handle_mcp_query(self, query: str) -> Optional[str]:
+        """
+        Handle MCP-specific queries using LLM for proper intent parsing
+        
+        Args:
+            query: User query about screen, applications, or automation tasks
+            
+        Returns:
+            Response string if handled, None if should fallback to normal processing
+        """
+        if not self.mcp_enabled or not self.mcp_client:
+            return None
+        
+        try:
+            query_lower = query.lower()
+            
+            # Check if this is a contextual screen query
+            screen_keywords = ["what's on my screen", "what is on my screen", "what am i doing", "show me", "screen", "windows", "applications"]
+            if any(keyword in query_lower for keyword in screen_keywords):
+                logger.info("Handling contextual screen visibility query with MCP")
+                
+                # Get contextual screen analysis
+                result = await self.mcp_client.get_contextual_screen_analysis()
+                
+                if result.success:
+                    data = result.data
+                    summary = data.get("summary", "")
+                    
+                    # Format contextual response
+                    response = f"{summary}\n\n"
+                    
+                    # Add specific window details if requested
+                    if "details" in query_lower or "more" in query_lower:
+                        active_windows = data.get("active_windows", [])
+                        if active_windows:
+                            response += "**Active Windows Details:**\n"
+                            for window in active_windows[:5]:
+                                title = window.get("title", "Unknown")
+                                size = f"{window.get('size', {}).get('width', 0)}x{window.get('size', {}).get('height', 0)}"
+                                response += f"• {title} ({size})\n"
+                    
+                    return response
+                else:
+                    logger.error(f"MCP contextual analysis failed: {result.error}")
+                    return None
+            
+            # Check if this is a PURE app control query - USE LLM FOR PROPER PARSING
+            # Only handle if it's JUST app control, not multi-task queries
+            app_control_keywords = ["close", "minimize", "maximize", "focus", "switch to"]
+            multi_task_indicators = ["and", "then", "also", "how much", "tell me", "let me know", "show me"]
+            
+            is_app_control = any(keyword in query_lower for keyword in app_control_keywords)
+            is_multi_task = any(indicator in query_lower for indicator in multi_task_indicators)
+            
+            if is_app_control and not is_multi_task:
+                logger.info("Handling pure app control query with MCP - using LLM for intent parsing")
+                
+                # Use AI engine to properly parse the intent
+                intent_data = await self.ai.parse_app_control_intent(query)
+                
+                if not intent_data or intent_data.get('confidence', 0) < 0.6:
+                    logger.warning(f"Low confidence in app control intent: {intent_data}")
+                    return None
+                
+                action = intent_data.get('action')  # close, minimize, maximize, focus
+                app_name = intent_data.get('app_name')
+                
+                if not app_name:
+                    logger.warning("Could not extract app name from query")
+                    return None
+                
+                # Normalize app name - remove "app", "browser", "window" suffixes
+                app_name_normalized = app_name.lower()
+                for suffix in [' app', ' browser', ' window', ' application']:
+                    app_name_normalized = app_name_normalized.replace(suffix, '')
+                app_name_normalized = app_name_normalized.strip()
+                
+                # CRITICAL: Self-protection - never close PRISM itself
+                if any(prism_name in app_name_normalized for prism_name in ['prism', 'electron']):
+                    logger.warning(f"Blocked attempt to close PRISM itself via '{app_name}'")
+                    return "I can't close myself - that would terminate our conversation. Did you mean a different application?"
+                
+                # Execute the action with normalized name
+                if action == "close":
+                    result = await self.mcp_client.close_application_smart(app_name_normalized)
+                    if result.success:
+                        return f"Successfully closed {app_name}"
+                    else:
+                        return f"Couldn't close {app_name}: {result.error}"
+                
+                elif action == "focus" or action == "switch":
+                    result = await self.mcp_client.call_tool("focus_window", title=app_name_normalized)
+                    if result.success:
+                        return f"Switched to {app_name}"
+                    else:
+                        return f"Couldn't find window: {app_name}"
+                
+                elif action == "minimize":
+                    result = await self.mcp_client.call_tool("minimize_window", title=app_name_normalized)
+                    if result.success:
+                        return f"Minimized {app_name}"
+                    else:
+                        return f"Couldn't minimize {app_name}"
+                
+                elif action == "maximize":
+                    result = await self.mcp_client.call_tool("maximize_window", title=app_name_normalized)
+                    if result.success:
+                        return f"Maximized {app_name}"
+                    else:
+                        return f"Couldn't maximize {app_name}"
+            
+            return None
+            
+        except Exception as e:
+            logger.error(f"Error handling MCP query: {e}", exc_info=True)
+            return None
+    
     # ==================== Context Management ====================
 
     def clear_conversation_context(self):

@@ -56,12 +56,23 @@ class AgentCoordinator:
         parameters = intent_data.get('parameters', {})
         
         # Map agent_type to capability
+        # Note: 'open_app' and system control tasks should use SYSTEM_CONTROL capability
+        # but we don't have a dedicated system control agent yet, so route to file_management
         capability_map = {
             'file_management': AgentCapability.FILE_MANAGEMENT,
             'web_operations': AgentCapability.WEB_OPERATIONS,
             'productivity': AgentCapability.PRODUCTIVITY,
             'system_control': AgentCapability.SYSTEM_CONTROL,
         }
+        
+        # Special handling: if task is 'open_app', it's actually a system control task
+        # but should be handled by LLM fallback since we don't have a dedicated agent
+        if task_type == 'open_app':
+            return AgentResponse.failure(
+                message="Application opening requires LLM processing",
+                agent_name="AgentCoordinator",
+                error="No dedicated system control agent - use LLM fallback"
+            )
         
         capability = capability_map.get(agent_type)
         if not capability:

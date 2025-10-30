@@ -58,10 +58,19 @@ class PersonalProductivityAgent(BaseAgent):
         - "suggest break"
         - "optimize routine"
         - "show productivity stats"
+        - "open_app" (with parameters from context)
         """
         task_lower = task.lower()
         
         try:
+            # Check for structured task from context (agent coordinator)
+            if context and 'task_type' in context:
+                task_type = context['task_type']
+                params = context.get('parameters', {})
+                
+                if task_type == 'open_app':
+                    return await self._handle_open_app(params)
+            
             if 'focus' in task_lower and 'start' in task_lower:
                 duration = self._extract_duration(task, default=25)
                 return await self._start_focus_session(duration)
@@ -369,6 +378,15 @@ class PersonalProductivityAgent(BaseAgent):
             habit = task_lower.split('track habit', 1)[1].strip()
             return habit.strip('"\'')
         return task
+    
+    async def _handle_open_app(self, params: Dict[str, Any]) -> AgentResponse:
+        """Handle opening application - delegate to system control"""
+        return AgentResponse.failure(
+            message="Application opening should be handled by system control",
+            agent_name=self.name,
+            error="Wrong agent - use system_control capability",
+            data={'redirect_to': 'system_control', 'parameters': params}
+        )
     
     async def shutdown(self) -> bool:
         """Cleanup and shutdown"""

@@ -68,3 +68,6 @@ cache/
 *.msi
 out/
 release/
+
+
+venv
