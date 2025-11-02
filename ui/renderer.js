@@ -13,7 +13,7 @@ const AppState = {
     currentState: 'idle',
     isListening: false,
     isProcessing: false,
-    isRealtimeActive: false,
+    isLiveMode: false,
     conversationHistory: [],
     settings: {
         theme: 'dark',
@@ -40,7 +40,7 @@ const elements = {
     
     // Input
     voiceBtn: document.getElementById('voiceBtn'),
-    realtimeBtn: document.getElementById('realtimeBtn'),
+    liveVoiceBtn: document.getElementById('liveVoiceBtn'),
     textInput: document.getElementById('textInput'),
     sendBtn: document.getElementById('sendBtn'),
     
@@ -85,8 +85,8 @@ function setupEventListeners() {
     // Voice button
     elements.voiceBtn.addEventListener('click', activateVoice);
     
-    // Realtime voice button
-    elements.realtimeBtn.addEventListener('click', toggleRealtimeVoice);
+    // Live Voice button
+    elements.liveVoiceBtn.addEventListener('click', toggleLiveVoice);
     
     // Text input
     elements.textInput.addEventListener('keypress', (e) => {
@@ -139,34 +139,34 @@ function handleOrbClick() {
 }
 
 function activateVoice() {
+    if (AppState.isLiveMode) {
+        console.log('Cannot use push-to-talk in Live Voice mode');
+        return;
+    }
     console.log('Activating voice...');
     elements.voiceBtn.classList.add('active');
     ipcRenderer.send('activate-voice');
 }
 
-function toggleRealtimeVoice() {
-    console.log('Toggling real-time voice...');
+function toggleLiveVoice() {
+    console.log('Toggling Live Voice mode...');
+    AppState.isLiveMode = !AppState.isLiveMode;
     
-    // Toggle real-time voice mode (continuous streaming)
-    if (AppState.isRealtimeActive) {
-        // Stopping realtime voice
-        addMessage('system', 'Stopping real-time voice mode...');
-        elements.realtimeBtn.classList.remove('active');
-        elements.realtimeBtn.disabled = true;
+    if (AppState.isLiveMode) {
+        elements.liveVoiceBtn.classList.add('active');
+        elements.voiceBtn.disabled = true;
+        elements.voiceBtn.style.opacity = '0.5';
+        elements.textInput.placeholder = 'Live Voice active - speak naturally...';
+        ipcRenderer.send('toggle-live-voice', { enabled: true });
+        addMessage('system', 'Live Voice mode activated. Speak naturally - I\'m listening continuously.');
     } else {
-        // Starting realtime voice
-        addMessage('system', 'Starting real-time voice mode... Please wait.');
-        elements.realtimeBtn.classList.add('active');
-        elements.realtimeBtn.disabled = true;
-        setState('processing');
+        elements.liveVoiceBtn.classList.remove('active');
+        elements.voiceBtn.disabled = false;
+        elements.voiceBtn.style.opacity = '1';
+        elements.textInput.placeholder = 'Type or use voice...';
+        ipcRenderer.send('toggle-live-voice', { enabled: false });
+        addMessage('system', 'Live Voice mode deactivated.');
     }
-    
-    ipcRenderer.send('toggle-realtime-voice');
-    
-    // Re-enable button after 3 seconds (timeout)
-    setTimeout(() => {
-        elements.realtimeBtn.disabled = false;
-    }, 3000);
 }
 
 // ============================================================================
@@ -513,22 +513,31 @@ function handleBackendMessage(data) {
             updateWaveformLevel(data.level);
             break;
         
-        case 'realtime_voice_started':
-            console.log('Real-time voice started');
-            AppState.isRealtimeActive = true;
-            elements.realtimeBtn.classList.add('active');
-            elements.realtimeBtn.disabled = false;
-            addMessage('system', '🎙️ Real-time voice mode activated! Just start talking naturally - no need to press any buttons.');
+        case 'live_voice_started':
+            console.log('Live Voice session started');
             setState('listening');
             break;
         
-        case 'realtime_voice_stopped':
-            console.log('Real-time voice stopped');
-            AppState.isRealtimeActive = false;
-            elements.realtimeBtn.classList.remove('active');
-            elements.realtimeBtn.disabled = false;
-            addMessage('system', 'Real-time voice mode deactivated. Switched back to push-to-talk mode.');
+        case 'live_voice_stopped':
+            console.log('Live Voice session stopped');
             setState('idle');
+            AppState.isLiveMode = false;
+            elements.liveVoiceBtn.classList.remove('active');
+            elements.voiceBtn.disabled = false;
+            elements.voiceBtn.style.opacity = '1';
+            elements.textInput.placeholder = 'Type or use voice...';
+            break;
+        
+        case 'live_voice_error':
+            console.error('Live Voice error:', data.message);
+            addMessage('system', `Live Voice error: ${data.message}`);
+            setState('error');
+            AppState.isLiveMode = false;
+            elements.liveVoiceBtn.classList.remove('active');
+            elements.voiceBtn.disabled = false;
+            elements.voiceBtn.style.opacity = '1';
+            elements.textInput.placeholder = 'Type or use voice...';
+            setTimeout(() => setState('idle'), 2000);
             break;
         
         case 'error':

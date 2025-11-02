@@ -378,10 +378,6 @@ ipcMain.on('activate-voice', () => {
     sendToBackend({ type: 'activate_voice' });
 });
 
-ipcMain.on('toggle-realtime-voice', () => {
-    sendToBackend({ type: 'toggle_realtime_voice' });
-});
-
 ipcMain.on('send-text', (event, text) => {
     const ok = sendToBackend({ 
         type: 'process_text',
@@ -392,6 +388,13 @@ ipcMain.on('send-text', (event, text) => {
         event.sender.send('backend-message', { type: 'error', message: 'Backend not connected. Retrying…' });
         restartBackendIfNeeded();
     }
+});
+
+ipcMain.on('toggle-live-voice', (event, data) => {
+    sendToBackend({ 
+        type: 'toggle_live_voice',
+        enabled: data.enabled
+    });
 });
 
 // ============================================================================

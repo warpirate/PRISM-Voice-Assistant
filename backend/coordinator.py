@@ -16,7 +16,6 @@ from backend.ai_engine import AIEngine
 from backend.system_control import SystemControl
 from backend.memory_system import MemorySystem
 from backend.websocket_bridge import WebSocketBridge
-from backend.realtime_voice import RealtimeVoiceSession
 from backend.agents import (
     AgentRegistry,
     AgentCoordinator,
@@ -25,6 +24,7 @@ from backend.agents import (
     PersonalProductivityAgent
 )
 from backend.mcp_client import PRISMMCPClient, mcp_client
+from backend.live_voice import LiveVoiceManager
 
 
 class SystemState(Enum):
@@ -55,7 +55,6 @@ class PRISMCoordinator:
         self.system_control = SystemControl()
         self.memory = MemorySystem()
         self.websocket = WebSocketBridge()
-        self.realtime_voice: Optional[RealtimeVoiceSession] = None
         
         # Initialize agent system
         self.agent_registry = AgentRegistry()
@@ -66,8 +65,9 @@ class PRISMCoordinator:
         self.mcp_client: Optional[PRISMMCPClient] = None
         self.mcp_enabled = True  # Toggle for MCP-based operations
         
-        # Voice mode
-        self.realtime_mode = False  # Toggle between traditional and real-time voice
+        # Initialize Live Voice manager
+        self.live_voice: Optional[LiveVoiceManager] = None
+        self.live_voice_enabled = False  # Toggle for Live Voice mode
         
         # Event callbacks for UI
         self.state_callbacks: Dict[SystemState, list] = {state: [] for state in SystemState}
@@ -226,11 +226,13 @@ class PRISMCoordinator:
                     "status": status
                 })
             
+            elif msg_type == "toggle_live_voice":
+                enabled = message.get("enabled", False)
+                await self.toggle_live_voice(enabled)
+            
             elif msg_type == "ping":
                 self._send_message({"type": "pong"})
             
-            elif msg_type == "toggle_realtime_voice":
-                await self.toggle_realtime_voice()
             
             else:
                 logger.warning(f"Unknown message type from UI: {msg_type}")
@@ -242,173 +244,6 @@ class PRISMCoordinator:
                 "message": str(e)
             })
 
-    # ==================== Real-time Voice Methods ====================
-    
-    async def toggle_realtime_voice(self):
-        """Toggle real-time voice conversation mode"""
-        if self.realtime_mode:
-            await self.stop_realtime_voice()
-        else:
-            await self.start_realtime_voice()
-    
-    async def start_realtime_voice(self):
-        """Start real-time voice conversation with Gemini Live API"""
-        if self.realtime_mode:
-            logger.warning("Real-time voice already active")
-            return
-        
-        try:
-            logger.info("Starting real-time voice mode...")
-            
-            # Create new session
-            self.realtime_voice = RealtimeVoiceSession()
-            
-            # Set up callbacks
-            self.realtime_voice.on_text_received = self._on_realtime_text_received
-            self.realtime_voice.on_user_speech = self._on_realtime_user_speech
-            self.realtime_voice.on_function_call = self._on_realtime_function_call
-            self.realtime_voice.on_state_change = self._on_realtime_state_change
-            
-            # Start session
-            success = await self.realtime_voice.start_session()
-            
-            if success:
-                self.realtime_mode = True
-                self._set_state(SystemState.LISTENING)
-                
-                self._send_message({
-                    "type": "realtime_voice_started",
-                    "timestamp": datetime.now().isoformat()
-                })
-                
-                logger.success("Real-time voice mode started - continuous streaming active")
-            else:
-                self._send_message({
-                    "type": "error",
-                    "message": "Failed to initialize real-time voice session"
-                })
-            
-        except Exception as e:
-            logger.error(f"Failed to start real-time voice: {e}", exc_info=True)
-            self._send_message({
-                "type": "error",
-                "message": f"Failed to start real-time voice: {str(e)}"
-            })
-    
-    async def stop_realtime_voice(self):
-        """Stop real-time voice conversation"""
-        if not self.realtime_mode or not self.realtime_voice:
-            return
-        
-        try:
-            logger.info("Stopping real-time voice mode...")
-            
-            await self.realtime_voice.stop_session()
-            self.realtime_voice = None
-            self.realtime_mode = False
-            
-            self._set_state(SystemState.IDLE)
-            
-            self._send_message({
-                "type": "realtime_voice_stopped",
-                "timestamp": datetime.now().isoformat()
-            })
-            
-            logger.success("Real-time voice mode stopped")
-            
-        except Exception as e:
-            logger.error(f"Error stopping real-time voice: {e}", exc_info=True)
-    
-    async def _on_realtime_user_speech(self, text: str):
-        """Handle user speech transcription from real-time voice"""
-        logger.info(f"User said: {text}")
-        
-        self._send_message({
-            "type": "user_message",
-            "content": text,
-            "timestamp": datetime.now().isoformat(),
-            "realtime": True
-        })
-    
-    async def _on_realtime_text_received(self, text: str):
-        """Handle assistant text response from real-time voice"""
-        logger.info(f"Assistant said: {text}")
-        
-        self._send_message({
-            "type": "assistant_message",
-            "content": text,
-            "timestamp": datetime.now().isoformat(),
-            "realtime": True
-        })
-    
-    async def _on_realtime_function_call(self, function_call: Dict[str, Any]):
-        """Handle function call from real-time voice"""
-        logger.info(f"Function call received: {function_call}")
-        
-        try:
-            func_id = function_call.get("id")
-            func_name = function_call.get("name")
-            func_args = function_call.get("args", {})
-            
-            if not func_id:
-                logger.error("Function call missing ID - cannot send response")
-                return
-            
-            # Map function calls to action format
-            action = {
-                "type": func_name,
-                "parameters": func_args
-            }
-            
-            logger.info(f"Executing action from real-time voice: {action}")
-            
-            # Execute the action
-            result = await self.system_control.execute_action(action)
-            
-            logger.info(f"Action result: {result}")
-            
-            # Send result back to Gemini session
-            if self.realtime_voice:
-                response_data = {
-                    "success": result.get("success", False),
-                    "message": result.get("message", ""),
-                    "result": "ok" if result.get("success", False) else "error"
-                }
-                await self.realtime_voice.send_function_response(func_id, func_name, response_data)
-            
-            # Notify UI if action failed
-            if not result.get("success", False):
-                self._send_message({
-                    "type": "error",
-                    "message": result.get("message", "Action failed"),
-                    "realtime": True
-                })
-            
-        except Exception as e:
-            logger.error(f"Error executing function call: {e}", exc_info=True)
-            
-            # Send error response back to Gemini
-            if self.realtime_voice and func_id:
-                await self.realtime_voice.send_function_response(
-                    func_id,
-                    func_name,
-                    {"success": False, "error": str(e), "result": "error"}
-                )
-            
-            self._send_message({
-                "type": "error",
-                "message": f"Failed to execute action: {str(e)}",
-                "realtime": True
-            })
-    
-    async def _on_realtime_state_change(self, state: str):
-        """Handle real-time voice state changes"""
-        logger.info(f"Real-time voice state: {state}")
-        
-        if state == "active":
-            self._set_state(SystemState.LISTENING)
-        elif state == "inactive":
-            self._set_state(SystemState.IDLE)
 
     # ==================== Voice Event Handlers ====================
 
@@ -1001,6 +836,109 @@ class PRISMCoordinator:
     async def get_conversation_history(self, limit: int = 20):
         """Get recent conversation history"""
         return await self.memory.get_recent_interactions(limit=limit)
+    
+    # ==================== Live Voice Methods ====================
+    
+    async def toggle_live_voice(self, enabled: bool):
+        """Toggle Live Voice mode on/off"""
+        try:
+            if enabled:
+                await self.start_live_voice()
+            else:
+                await self.stop_live_voice()
+        except Exception as e:
+            logger.error(f"Error toggling Live Voice: {e}", exc_info=True)
+            self._send_message({
+                "type": "live_voice_error",
+                "message": str(e)
+            })
+    
+    async def start_live_voice(self):
+        """Start Live Voice mode"""
+        if self.live_voice_enabled:
+            logger.warning("Live Voice already active")
+            return
+        
+        try:
+            logger.info("Starting Live Voice mode...")
+            
+            # Initialize Live Voice manager if not already done
+            if not self.live_voice:
+                api_key = config.ai.gemini_api_key
+                if not api_key:
+                    raise ValueError("Gemini API key not configured")
+                
+                self.live_voice = LiveVoiceManager(api_key)
+                
+                # Set up callbacks
+                self.live_voice.on_state_change = self._on_live_voice_state_change
+                self.live_voice.on_audio_level = self._on_audio_level
+                self.live_voice.on_error = self._on_live_voice_error
+            
+            # Start Live Voice session
+            system_instruction = "You are PRISM, a helpful AI assistant. Respond naturally and conversationally in a friendly tone. Keep responses concise but informative."
+            await self.live_voice.start_live_mode(system_instruction)
+            
+            self.live_voice_enabled = True
+            
+            # Notify UI
+            self._send_message({
+                "type": "live_voice_started",
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            logger.success("Live Voice mode started")
+            
+        except Exception as e:
+            logger.error(f"Failed to start Live Voice: {e}", exc_info=True)
+            self.live_voice_enabled = False
+            raise
+    
+    async def stop_live_voice(self):
+        """Stop Live Voice mode"""
+        if not self.live_voice_enabled:
+            return
+        
+        try:
+            logger.info("Stopping Live Voice mode...")
+            
+            if self.live_voice:
+                await self.live_voice.stop_live_mode()
+            
+            self.live_voice_enabled = False
+            
+            # Notify UI
+            self._send_message({
+                "type": "live_voice_stopped",
+                "timestamp": datetime.now().isoformat()
+            })
+            
+            logger.success("Live Voice mode stopped")
+            
+        except Exception as e:
+            logger.error(f"Error stopping Live Voice: {e}", exc_info=True)
+    
+    def _on_live_voice_state_change(self, state: str):
+        """Handle Live Voice state changes"""
+        logger.debug(f"Live Voice state: {state}")
+        
+        # Map Live Voice states to system states
+        state_map = {
+            "listening": SystemState.LISTENING,
+            "responding": SystemState.RESPONDING,
+            "idle": SystemState.IDLE
+        }
+        
+        system_state = state_map.get(state, SystemState.IDLE)
+        self._set_state(system_state)
+    
+    def _on_live_voice_error(self, error: str):
+        """Handle Live Voice errors"""
+        logger.error(f"Live Voice error: {error}")
+        self._send_message({
+            "type": "live_voice_error",
+            "message": error
+        })
 
 
 # Global coordinator instance
