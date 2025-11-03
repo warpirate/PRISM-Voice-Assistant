@@ -252,7 +252,11 @@ class LiveVoiceSession:
                             if not self.is_active:
                                 break
                             
-                            # Check for server content with model turn
+                            # Debug: Log response structure
+                            logger.debug(f"Received response type: {type(response)}")
+                            logger.debug(f"Response attributes: {dir(response)}")
+                            
+                            # Check for server content
                             if response.server_content:
                                 server_content = response.server_content
                                 
@@ -270,14 +274,39 @@ class LiveVoiceSession:
                                         if hasattr(part, 'inline_data') and part.inline_data:
                                             if part.inline_data.mime_type.startswith('audio/'):
                                                 audio_bytes = part.inline_data.data
+                                                logger.debug(f"Received audio chunk: {len(audio_bytes)} bytes")
                                                 
                                                 # Play through speakers
                                                 if self.output_stream:
-                                                    self.output_stream.write(audio_bytes)
+                                                    try:
+                                                        self.output_stream.write(audio_bytes)
+                                                    except Exception as play_error:
+                                                        logger.error(f"Error playing audio: {play_error}")
                                                 
                                                 # Notify callback
                                                 if self.on_response_chunk:
                                                     self.on_response_chunk(audio_bytes)
+                                
+                                # Also check for audio directly in server_content (alternative format)
+                                if hasattr(server_content, 'audio') and server_content.audio:
+                                    audio_bytes = server_content.audio
+                                    logger.debug(f"Received direct audio: {len(audio_bytes)} bytes")
+                                    
+                                    if not response_active:
+                                        response_active = True
+                                        if self.on_response_start:
+                                            self.on_response_start()
+                                    
+                                    # Play through speakers
+                                    if self.output_stream:
+                                        try:
+                                            self.output_stream.write(audio_bytes)
+                                        except Exception as play_error:
+                                            logger.error(f"Error playing audio: {play_error}")
+                                    
+                                    # Notify callback
+                                    if self.on_response_chunk:
+                                        self.on_response_chunk(audio_bytes)
                                 
                                 # Check for response end (but continue listening for next turn)
                                 if server_content.turn_complete and response_active:
@@ -286,6 +315,10 @@ class LiveVoiceSession:
                                         self.on_response_end()
                                     logger.debug("Response ended, ready for next input")
                                     # Do not break; allow the async for to finish naturally for this turn
+                            
+                            # Log other response types for debugging
+                            else:
+                                logger.debug(f"Received response without server_content: {type(response)}")
                         
                         # Turn finished (receive() iterator completed). Loop to wait for the next turn on the same session.
                         if not self.is_active:
