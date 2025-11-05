@@ -75,11 +75,6 @@ function initialize() {
     setupMatrix();
     loadSettings();
     
-    // Initialize glass effects
-    if (typeof glassEffects !== 'undefined') {
-        glassEffects.init();
-    }
-    
     console.log('PRISM UI initialized');
 }
 
@@ -205,11 +200,6 @@ function sendTextMessage() {
 function addMessage(role, content, timestamp = null) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${role}-message`;
-    
-    // Apply glass enhancement if available
-    if (typeof glassEffects !== 'undefined') {
-        messageDiv.classList.add('glass-enhanced');
-    }
     
     const contentDiv = document.createElement('div');
     contentDiv.className = 'message-content';
