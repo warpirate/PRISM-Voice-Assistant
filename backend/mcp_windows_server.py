@@ -178,7 +178,7 @@ def focus_window(title: str) -> str:
     Focus and bring a window to the front by title
     
     Args:
-        title: Window title to focus (supports partial matching)
+        title: Window title to focus (supports partial matching and app name aliases)
     
     Returns:
         Success/failure message
@@ -186,45 +186,98 @@ def focus_window(title: str) -> str:
     import time
     
     try:
+        # App name aliases for better matching
+        app_aliases = {
+            'telegram': ['telegram', 'telegram desktop', 'telegram.exe'],
+            'chrome': ['chrome', 'google chrome', 'chrome.exe'],
+            'edge': ['edge', 'microsoft edge', 'msedge.exe'],
+            'notepad': ['notepad', 'notepad.exe', 'untitled'],
+            'whatsapp': ['whatsapp', 'whatsapp desktop', 'whatsapp.exe'],
+            'discord': ['discord', 'discord.exe'],
+            'spotify': ['spotify', 'spotify.exe'],
+            'vscode': ['visual studio code', 'code.exe', 'vscode'],
+            'windsurf': ['windsurf', 'windsurf.exe']
+        }
+        
+        # Get possible titles to match
+        title_lower = title.lower()
+        possible_titles = [title_lower]
+        
+        # Add aliases if the title matches an app name
+        for app, aliases in app_aliases.items():
+            if app in title_lower or title_lower in app:
+                possible_titles.extend([alias.lower() for alias in aliases])
+        
         # Retry logic for newly opened windows
-        max_retries = 3
-        retry_delay = 0.5
+        max_retries = 5  # Increased retries for better reliability
+        retry_delay = 0.3  # Shorter delay for faster response
         
         for attempt in range(max_retries):
             desktop = Desktop(backend="uia")
             windows = desktop.windows()
             
-            # Find window with matching title (case-insensitive partial match)
+            # Find window with matching title (improved matching logic)
             target_window = None
-            title_lower = title.lower()
+            best_match_score = 0
             
             for window in windows:
                 try:
+                    if not window.is_visible():
+                        continue
+                        
                     window_title = window.window_text().lower()
-                    # Match if title is in window name or window name is in title
-                    if window.is_visible() and (title_lower in window_title or window_title in title_lower):
+                    if not window_title:  # Skip windows with no title
+                        continue
+                    
+                    # Calculate match score
+                    match_score = 0
+                    for possible_title in possible_titles:
+                        if possible_title in window_title:
+                            match_score = max(match_score, len(possible_title) / len(window_title))
+                        elif window_title in possible_title:
+                            match_score = max(match_score, len(window_title) / len(possible_title))
+                    
+                    # Update best match if this is better
+                    if match_score > best_match_score:
+                        best_match_score = match_score
                         target_window = window
-                        break
-                except:
+                        
+                except Exception as e:
+                    logger.debug(f"Error checking window: {e}")
                     continue
             
-            if target_window:
-                if target_window.is_minimized():
-                    target_window.restore()
-                target_window.set_focus()
-                return json.dumps({
-                    "success": True,
-                    "message": f"Focused window: {target_window.window_text()}"
-                })
+            if target_window and best_match_score > 0.3:  # Minimum match threshold
+                try:
+                    if target_window.is_minimized():
+                        target_window.restore()
+                    target_window.set_focus()
+                    return json.dumps({
+                        "success": True,
+                        "message": f"Focused window: {target_window.window_text()}"
+                    })
+                except Exception as e:
+                    logger.warning(f"Failed to focus window: {e}")
+                    continue
             
             # If not found and not last attempt, wait and retry
             if attempt < max_retries - 1:
                 time.sleep(retry_delay)
         
-        # All retries exhausted
+        # All retries exhausted - provide helpful debug info
+        available_windows = []
+        try:
+            desktop = Desktop(backend="uia")
+            for window in desktop.windows():
+                if window.is_visible() and window.window_text():
+                    available_windows.append(window.window_text())
+        except:
+            pass
+        
+        debug_info = f"Available windows: {', '.join(available_windows[:5])}" if available_windows else "No visible windows found"
+        
         return json.dumps({
             "success": False,
-            "message": f"No window found with title containing: {title}"
+            "message": f"No window found matching: {title}. {debug_info}"
         })
             
     except Exception as e:

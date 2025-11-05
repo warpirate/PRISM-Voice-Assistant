@@ -58,116 +58,62 @@ class AIEngine:
         self.provider = config.ai.provider
         
         # System prompt that defines PRISM's personality and capabilities
-        self.system_prompt = """You are PRISM (Personal Response Interface for System Management), 
-        my personal AI assistant. I am here to help you with:
+        self.system_prompt = """You are PRISM, a personal AI assistant. You are friendly, efficient, and get things done.
 
-        1. **System Control**: Opening/closing applications, managing files, executing commands
-        2. **UI Automation**: Controlling applications via keyboard/mouse, clicking buttons, filling forms
-        3. **Information Retrieval**: Answering questions, searching the web, providing knowledge
-        4. **Productivity**: Creating files, organizing tasks, managing workflows
-        5. **System Monitoring**: RAM usage, running processes, system information
-        6. **Natural Conversation**: Engaging in helpful, friendly dialogue
+        **Your Role**: You coordinate between direct system actions and specialized agents. You decide what to do based on the user's request.
 
-        **My Personality**: I am your personal assistant - helpful, efficient, and natural. I respond like a capable assistant, not a system. I speak directly and personally to you.
+        **Decision Making**:
+        - Conversations/questions → Respond naturally
+        - File operations → Delegate to PersonalFileAgent
+        - Web operations → Delegate to PersonalWebAgent
+        - Productivity tasks → Delegate to PersonalProductivityAgent
+        - System control → Use direct actions
 
-        **IMPORTANT**: Never mention technical details like confidence scores, system processes, or implementation details. Just respond naturally and get things done.
+        **Specialized Agents Available**:
 
-        **When you ask me to perform system actions**:
-        1. I respond naturally to you
-        2. I automatically handle the action in the background
-        3. I include the required action tag (which you won't see)
-        4. For multi-task queries, I can perform multiple actions in sequence
-        5. I can control applications using keyboard shortcuts and mouse clicks
-        6. I break down complex tasks into step-by-step MCP actions automatically
-        
-        **Breaking Down Complex Tasks**:
-        - "Open YouTube and search for X" = open browser → navigate to youtube.com → search for X
-        - "Create new file in app" = focus app → press new file hotkey
-        - "Fill form with data" = focus field → type data → tab to next field → repeat
-        - Always use the actual keyboard shortcuts and navigation patterns users would use
+        **PersonalFileAgent** (file_management):
+        - "search_files": Find files by name/type/location
+        - "open_file": Find and open files (movies, documents, music, etc.)
+        - "delete_file": Delete specific files by name/type
+        - "organize_downloads": Clean up downloads folder
+        - "backup": Backup files/folders
+        - "cleanup": Remove files older than X days
+        Parameters: search_term, location, file_type, path
 
-        **Action Format** (required for system actions):
-        ACTION: {"type": "action_type", "parameters": {...}}
+        **PersonalWebAgent** (web_operations):
+        - "research": Research topics online
+        - "web_search": Search the web
+        - "monitor": Monitor websites
+        - "save_content": Save web content
 
-        Available actions:
-        - open_application: {"name": "app_name"} 
+        **PersonalProductivityAgent** (productivity):
+        - "start_focus_session": Begin focus/work session
+        - "track_habit": Track habit completion
+        - "suggest_break": Suggest break times
+        - "get_stats": Show productivity statistics
+
+        **Agent Delegation**:
+        ACTION: {"type": "agent_call", "parameters": {"agent": "PersonalFileAgent", "task": "open_file", "params": {"search_term": "movie_name", "file_type": "video"}}}
+
+        **Direct System Actions**:
+        - open_application: {"name": "app_name"}
         - close_application: {"name": "app_name"}
-        - open_file: {"path": "file_path"}
-        - search_files: {"query": "search_term", "location": "directory"}
-        - create_file: {"path": "file_path", "content": "file_content"}
+        - mcp_focus_window: {"title": "window_title"}
+        - mcp_type_text: {"text": "text to type"}
+        - mcp_click: {"x": 100, "y": 200}
+        - mcp_hotkey: {"keys": "ctrl+c"}
         - web_search: {"query": "search_query"}
-        - system_command: {"command": "command_to_execute"}
-        - get_memory_info: {} (get RAM usage)
-        - mcp_focus_window: {"title": "window_title"} (focus a window)
-        - mcp_hotkey: {"keys": "ctrl+n"} (press keyboard shortcut)
-        - mcp_type_text: {"text": "text to type"} (type text)
-        - mcp_press_key: {"key": "enter"} (press single key)
-        - mcp_click: {"x": 100, "y": 200} (click at coordinates)
+        - get_memory_info: {}
 
-        **UI Automation Example**:
-        User: "create new project in windsurf"
-        Assistant: "I'll create a new project in Windsurf for you.
-        ACTION: {"type": "mcp_focus_window", "parameters": {"title": "windsurf"}}
-        ACTION: {"type": "mcp_hotkey", "parameters": {"keys": "ctrl+shift+n"}}
-        
-        I've opened the new project dialog in Windsurf."
+        **Key Principles**:
+        1. Understand user intent, not just literal words
+        2. Be proactive - don't ask for details when agents can find them
+        3. Use agents for their specialties (files, web, productivity)
+        4. Use direct actions for immediate system control
+        5. Support both English and Telugu naturally
+        6. Think intelligently about what users actually want
 
-        **Browser Automation Example**:
-        User: "open youtube and search for python video and play it"
-        Assistant: "I'll open YouTube, search for a Python video, and play it for you.
-        ACTION: {"type": "open_application", "parameters": {"name": "chrome"}}
-        ACTION: {"type": "mcp_focus_window", "parameters": {"title": "chrome"}}
-        ACTION: {"type": "mcp_hotkey", "parameters": {"keys": "ctrl+l"}}
-        ACTION: {"type": "mcp_type_text", "parameters": {"text": "youtube.com"}}
-        ACTION: {"type": "mcp_press_key", "parameters": {"key": "enter"}}
-        ACTION: {"type": "mcp_hotkey", "parameters": {"keys": "ctrl+k"}}
-        ACTION: {"type": "mcp_type_text", "parameters": {"text": "python tutorial"}}
-        ACTION: {"type": "mcp_press_key", "parameters": {"key": "enter"}}
-        
-        I've opened YouTube, searched for Python videos, and the results are loading."
-
-        **WhatsApp Messaging Example** (CRITICAL - Follow this exact pattern):
-        User: "send message to John saying hello"
-        Assistant: "I'll send that message to John on WhatsApp.
-        ACTION: {"type": "open_application", "parameters": {"name": "whatsapp"}}
-        ACTION: {"type": "mcp_focus_window", "parameters": {"title": "whatsapp"}}
-        ACTION: {"type": "mcp_hotkey", "parameters": {"keys": "ctrl+f"}}
-        ACTION: {"type": "mcp_type_text", "parameters": {"text": "John"}}
-        ACTION: {"type": "mcp_press_key", "parameters": {"key": "down"}}
-        ACTION: {"type": "mcp_press_key", "parameters": {"key": "enter"}}
-        ACTION: {"type": "mcp_type_text", "parameters": {"text": "hello"}}
-        ACTION: {"type": "mcp_press_key", "parameters": {"key": "enter"}}
-        
-        Message sent to John."
-        
-        **IMPORTANT for WhatsApp/Messaging Apps**:
-        - After typing contact name in search, press DOWN arrow to select from results
-        - Then press ENTER to open the chat
-        - Only then type the message (it will go in the message field, not search)
-        - Press ENTER again to send
-
-        **Multi-Task Example**:
-        User: "close chrome and tell me how much RAM was freed"
-        Assistant: "I'll close Chrome and check the RAM savings for you.
-        ACTION: {"type": "get_memory_info", "parameters": {}}
-        ACTION: {"type": "close_application", "parameters": {"name": "chrome"}}
-        ACTION: {"type": "get_memory_info", "parameters": {}}
-        
-        Based on the memory readings, closing Chrome freed up approximately X GB of RAM."
-
-        **Example Responses**:
-        User: "Open notepad"
-        Assistant: "I'll open Notepad for you right away.
-        ACTION: {"type": "open_application", "parameters": {"name": "notepad"}}"
-
-        User: "close edge"
-        Assistant: "Closing Microsoft Edge for you.
-        ACTION: {"type": "close_application", "parameters": {"name": "edge"}}"
-
-        User: "type hello world in notepad"
-        Assistant: "I'll type that for you in Notepad.
-        ACTION: {"type": "mcp_focus_window", "parameters": {"title": "notepad"}}
-        ACTION: {"type": "mcp_type_text", "parameters": {"text": "hello world"}}"
+        **Action Format**: ACTION: {"type": "action_type", "parameters": {...}}
         """
 
     async def initialize(self):
@@ -481,130 +427,33 @@ class AIEngine:
         logger.info(f"Parsing user intent: {user_input}")
         
         # Build a prompt specifically for intent parsing
-        intent_prompt = f"""You are PRISM's intent parser. Analyze the user's request and extract structured information.
+        intent_prompt = f"""Parse: "{user_input}"
 
-User request: "{user_input}"
+Understand the user's actual intent, not just literal words.
 
-Analyze this request and respond with a JSON object containing:
-1. "agent_type": Which agent should handle this (file_management, web_operations, productivity, system_control, or conversational)
-2. "task_type": The specific task (e.g., "search_files", "organize_downloads", "web_search", "open_app", etc.)
-3. "parameters": A dictionary of extracted parameters relevant to the task
-4. "confidence": Your confidence level (0.0 to 1.0)
+When user asks about "movies" or "videos" or "films" → they want video files, not files named "movie"
+When user asks about "music" or "songs" → they want audio files, not files named "music"  
+When user asks about "documents" or "files" → they want document files
+When user asks about "pictures" or "photos" → they want image files
 
-For file searches, extract:
-- search_term: What to search for (keywords only, not full sentence)
-- location: Where to search (e.g., "downloads", "documents", "desktop", or null for all)
-- file_type: Type of file if mentioned (e.g., "video", "document", "image", or null)
+For file operations:
+- "delete [files]" or "remove [files]" → task_type: "delete_file" (delete specific files)
+- "cleanup old files" or "remove old files" → task_type: "cleanup" (delete by age)
+- "search/find [files]" → task_type: "search_files"
+- "open/play [file]" → task_type: "open_file"
 
-For opening files, extract the same parameters as searching.
+For file searches, use smart parameters:
+- If asking about movies/videos → search_term: "", file_type: "video" (search all video files)
+- If asking about music/audio → search_term: "", file_type: "audio" (search all audio files)
+- If asking about specific file → search_term: "actual_filename", file_type: relevant_type
 
-Examples:
+Return JSON:
+- agent_type: file_management, web_operations, productivity, system_control, conversational
+- task_type: search_files, open_file, delete_file, cleanup, organize_downloads, web_search, etc.
+- parameters: smart extracted params
+- confidence: 0.0-1.0
 
-User: "search for coolie movie in my downloads folder"
-Response: {{
-  "agent_type": "file_management",
-  "task_type": "search_files",
-  "parameters": {{
-    "search_term": "coolie",
-    "location": "downloads",
-    "file_type": "video"
-  }},
-  "confidence": 0.95
-}}
-
-User: "open og movie from downloads"
-Response: {{
-  "agent_type": "file_management",
-  "task_type": "open_file",
-  "parameters": {{
-    "search_term": "og",
-    "location": "downloads",
-    "file_type": "video"
-  }},
-  "confidence": 0.98
-}}
-
-User: "play the video coolie"
-Response: {{
-  "agent_type": "file_management",
-  "task_type": "open_file",
-  "parameters": {{
-    "search_term": "coolie",
-    "location": null,
-    "file_type": "video"
-  }},
-  "confidence": 0.95
-}}
-
-User: "organize my downloads"
-Response: {{
-  "agent_type": "file_management",
-  "task_type": "organize_downloads",
-  "parameters": {{}},
-  "confidence": 1.0
-}}
-
-User: "find project report pdf"
-Response: {{
-  "agent_type": "file_management",
-  "task_type": "search_files",
-  "parameters": {{
-    "search_term": "project report",
-    "location": null,
-    "file_type": "document"
-  }},
-  "confidence": 0.9
-}}
-
-User: "search for python tutorial"
-Response: {{
-  "agent_type": "web_operations",
-  "task_type": "web_search",
-  "parameters": {{
-    "query": "python tutorial"
-  }},
-  "confidence": 0.95
-}}
-
-User: "run dir command in downloads folder"
-Response: {{
-  "agent_type": "file_management",
-  "task_type": "run_command",
-  "parameters": {{
-    "command": "dir",
-    "working_dir": "C:\\Users\\[username]\\Downloads"
-  }},
-  "confidence": 0.9
-}}
-
-User: "execute ipconfig"
-Response: {{
-  "agent_type": "file_management",
-  "task_type": "run_command",
-  "parameters": {{
-    "command": "ipconfig",
-    "working_dir": null
-  }},
-  "confidence": 0.95
-}}
-
-User: "send message to John on whatsapp saying hello"
-Response: {{
-  "agent_type": "conversational",
-  "task_type": "send_message",
-  "parameters": {{
-    "app": "whatsapp",
-    "recipient": "John",
-    "message": "hello"
-  }},
-  "confidence": 0.95
-}}
-
-IMPORTANT: For messaging tasks (send message, text someone, message on whatsapp/telegram/etc), 
-always use agent_type "conversational" and task_type "send_message". The LLM will handle the 
-UI automation directly - agents are NOT needed for messaging.
-
-Now analyze the user's request and respond ONLY with the JSON object, no other text:
+JSON only:
 """
         
         try:
@@ -785,55 +634,14 @@ Now analyze the user's request and respond ONLY with the JSON object, no other t
         logger.info(f"Parsing app control intent: {user_input}")
         
         # Build a prompt specifically for app control parsing
-        intent_prompt = f"""You are PRISM's app control parser. Analyze the user's request and extract structured information.
+        intent_prompt = f"""Parse app control: "{user_input}"
 
-User request: "{user_input}"
+Return JSON with:
+- action: close, minimize, maximize, or focus
+- app_name: exact app name mentioned
+- confidence: 0.0-1.0
 
-Analyze this request and respond with a JSON object containing:
-1. "action": The action to perform (close, minimize, maximize, or focus)
-2. "app_name": The exact application name mentioned (e.g., "Chrome", "Notepad", "Windsurf", "Visual Studio Code")
-3. "confidence": Your confidence level (0.0 to 1.0)
-
-IMPORTANT: Extract the EXACT application name as mentioned by the user. Do NOT abbreviate or modify it.
-
-Examples:
-
-User: "close chrome"
-Response: {{
-  "action": "close",
-  "app_name": "Chrome",
-  "confidence": 0.95
-}}
-
-User: "close windsurf"
-Response: {{
-  "action": "close",
-  "app_name": "Windsurf",
-  "confidence": 0.98
-}}
-
-User: "minimize notepad"
-Response: {{
-  "action": "minimize",
-  "app_name": "Notepad",
-  "confidence": 0.95
-}}
-
-User: "switch to visual studio code"
-Response: {{
-  "action": "focus",
-  "app_name": "Visual Studio Code",
-  "confidence": 0.9
-}}
-
-User: "maximize the browser"
-Response: {{
-  "action": "maximize",
-  "app_name": "browser",
-  "confidence": 0.7
-}}
-
-Now analyze the user's request and respond ONLY with the JSON object, no other text:
+JSON only:
 """
         
         try:

@@ -16,32 +16,42 @@ from backend.coordinator import coordinator
 
 
 def setup_logging():
-    """Configure logging"""
+    """Configure logging with Unicode support"""
+    import io
+    
     logger.remove()  # Remove default handler
     
-    # Send ALL logs to STDOUT to avoid Electron interpreting STDERR as errors
+    # Create UTF-8 wrapped stdout to handle Unicode characters like emojis
+    utf8_stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    
+    # Send ALL logs to UTF-8 wrapped STDOUT to avoid Electron interpreting STDERR as errors
     logger.add(
-        sys.stdout,
+        utf8_stdout,
         format="<green>{time:HH:mm:ss}</green> | <level>{level:<8}</level> | <cyan>{name}</cyan>:<cyan>{function}</cyan> | <level>{message}</level>",
         level=config.log_level,
         colorize=False,  # Disable colorize to avoid potential stderr usage
         backtrace=False,
-        diagnose=False
+        diagnose=False,
+        catch=True  # Catch logging errors to prevent crashes
     )
     
-    # File logging
+    # File logging with UTF-8 encoding
     log_dir = config.data_dir / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
     
+    # Open file with UTF-8 encoding explicitly
+    log_file_path = log_dir / "prism_{time:YYYY-MM-DD}.log"
     logger.add(
-        log_dir / "prism_{time:YYYY-MM-DD}.log",
+        str(log_file_path),
         rotation="1 day",
         retention="7 days",
         level="DEBUG",
-        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function} | {message}"
+        format="{time:YYYY-MM-DD HH:mm:ss} | {level: <8} | {name}:{function} | {message}",
+        catch=True,  # Catch logging errors to prevent crashes
+        encoding="utf-8"  # This works for file handlers
     )
     
-    logger.info("Logging configured")
+    logger.info("Logging configured with Unicode support")
 
 
 async def main():

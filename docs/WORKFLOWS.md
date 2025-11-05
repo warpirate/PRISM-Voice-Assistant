@@ -397,22 +397,33 @@
 ```
 1. Error occurs during processing
    ↓
-2. Catch exception
+2. Catch exception and analyze error type
    ├─ Log error with stack trace
    ├─ Set state to ERROR
-   └─ Notify user
+   └─ Determine error category
    ↓
-3. Attempt recovery
+3. Provide specific error messages
+   ├─ Unicode errors: "Special characters issue, try rephrasing"
+   ├─ Connection errors: "Connection issues, reconnecting..."
+   ├─ Timeout errors: "Request took too long, try simpler command"
+   ├─ Permission errors: "Need administrator privileges"
+   ├─ Window not found: "App might not be open or title different"
+   └─ Generic: "Error processing request, try again"
+   ↓
+4. Attempt automatic recovery
    ├─ If agent error: Fallback to LLM
    ├─ If LLM error: Fallback to rule-based
-   ├─ If WebSocket error: Reconnect
+   ├─ If WebSocket error: Auto-reconnect
+   ├─ If Unicode error: Use UTF-8 encoding
    └─ If voice error: Return to text mode
    ↓
-4. Wait 2 seconds
+5. Wait with exponential backoff (0.5s to 2s)
+   ├─ Track error count for adaptive delays
+   └─ Reset counter after 5 consecutive errors
    ↓
-5. Return to IDLE state
+6. Return to IDLE state
    ↓
-6. System ready for next request
+7. System ready for next request
 ```
 
 ## Memory & Learning Workflows
@@ -520,23 +531,111 @@ State Changes:
 5. Update conversation history
 ```
 
+## Performance Optimizations
+
+### Intelligent Context Caching
+
+```
+1. System context requests
+   ↓
+2. Check cache validity (10s TTL)
+   ├─ If valid: Return cached context
+   └─ If expired: Continue
+   ↓
+3. Determine context requirements
+   ├─ Conversational query: Skip MCP context
+   └─ System action query: Include MCP context
+   ↓
+4. Build fresh context
+   ├─ Basic system info (always)
+   ├─ Running applications (always)
+   └─ MCP screen context (conditional)
+   ↓
+5. Update cache and return
+```
+
+### Conversational Query Detection
+
+```
+1. Analyze user input
+   ↓
+2. Check for conversational patterns
+   ├─ Greetings: hi, hello, hey
+   ├─ Responses: ok, yes, no, thanks
+   ├─ Emotions: lol, wow, cool
+   ├─ Profanity: handled gracefully
+   └─ Emojis: 😂, 😊, 👍, ❤️
+   ↓
+3. Check for system action terms
+   ├─ If contains: open, close, run, file
+   └─ Then: Not conversational
+   ↓
+4. Skip expensive MCP calls for conversational queries
+   ├─ Saves 3 MCP tool calls per request
+   └─ Reduces response time by 2-4 seconds
+```
+
+### Window Focus Optimization
+
+```
+1. Receive window focus request
+   ↓
+2. Apply app name aliases
+   ├─ telegram → [telegram, telegram desktop, telegram.exe]
+   ├─ chrome → [chrome, google chrome, chrome.exe]
+   └─ whatsapp → [whatsapp, whatsapp desktop, whatsapp.exe]
+   ↓
+3. Improved matching algorithm
+   ├─ Calculate match scores for all windows
+   ├─ Use best match above 30% threshold
+   └─ Provide debug info on failure
+   ↓
+4. Enhanced retry logic
+   ├─ 5 retries with 0.3s delays
+   ├─ Handle minimized windows
+   └─ Graceful error handling
+```
+
+### Unicode and Logging Fixes
+
+```
+1. Configure UTF-8 encoding for all log handlers
+   ├─ Stdout handler: encoding="utf-8"
+   ├─ File handler: encoding="utf-8"
+   └─ Catch logging errors: catch=True
+   ↓
+2. Handle emoji and special characters
+   ├─ 😂 (U+1F602) - Face with tears of joy
+   ├─ 👍 (U+1F44D) - Thumbs up
+   └─ Other Unicode characters
+   ↓
+3. Prevent logging crashes
+   ├─ Graceful error handling
+   └─ Continue operation on log failures
+```
+
 ## Best Practices
 
 ### Workflow Design Principles
 
 1. **Clear Entry/Exit Points** - Every workflow has defined start and end
-2. **Error Handling** - Every step has error recovery
+2. **Intelligent Error Handling** - Specific recovery for each error type
 3. **State Management** - State transitions are explicit
 4. **Async Operations** - Long operations don't block
-5. **User Feedback** - User always knows what's happening
-6. **Graceful Degradation** - Fallbacks for every failure
-7. **Logging** - All steps logged for debugging
-8. **Timeout Handling** - No infinite waits
+5. **User Feedback** - User always knows what's happening with helpful messages
+6. **Graceful Degradation** - Fallbacks for every failure with recovery suggestions
+7. **Comprehensive Logging** - All steps logged with Unicode support
+8. **Smart Timeout Handling** - No infinite waits with exponential backoff
+9. **Context Optimization** - Skip expensive operations for simple queries
+10. **Proactive Error Prevention** - Validate inputs and handle edge cases
 
 ### Performance Considerations
 
 1. **Parallel Execution** - Independent operations run concurrently
-2. **Caching** - Frequently accessed data cached
+2. **Intelligent Caching** - Context cached with conditional MCP calls
 3. **Lazy Loading** - Resources loaded on demand
-4. **Connection Pooling** - Reuse connections
+4. **Connection Pooling** - Reuse connections with auto-reconnect
 5. **Batch Operations** - Group related operations
+6. **Query Classification** - Skip expensive operations for conversational queries
+7. **Adaptive Delays** - Exponential backoff for error recovery
+8. **Resource Cleanup** - Proper cleanup on errors and shutdown

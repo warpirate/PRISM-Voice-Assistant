@@ -52,7 +52,6 @@ class PRISMCoordinator:
         # Initialize subsystems
         self.voice = VoicePipeline()
         self.ai = AIEngine()
-        self.system_control = SystemControl()
         self.memory = MemorySystem()
         self.websocket = WebSocketBridge()
         
@@ -60,6 +59,9 @@ class PRISMCoordinator:
         self.agent_registry = AgentRegistry()
         self.agent_coordinator: Optional[AgentCoordinator] = None
         self.agents_enabled = True  # Toggle for agent-based processing
+        
+        # Initialize SystemControl with agent coordinator (will be set later)
+        self.system_control = SystemControl()
         
         # Initialize MCP client for screen visibility and app control
         self.mcp_client: Optional[PRISMMCPClient] = None
@@ -320,70 +322,15 @@ class PRISMCoordinator:
                 "timestamp": datetime.now().isoformat()
             })
             
-            # Try MCP query handling first (for screen visibility and app control)
-            mcp_response = await self.handle_mcp_query(user_input)
-            if mcp_response:
-                # MCP handled the query directly
-                logger.info("Query handled by MCP system")
-                
-                # Store MCP response
-                self.conversation_context.append({
-                    "role": "assistant",
-                    "content": mcp_response
-                })
-                
-                if config.privacy.store_conversations:
-                    await self.memory.store_interaction({
-                        "role": "assistant",
-                        "content": mcp_response,
-                        "timestamp": datetime.now().isoformat(),
-                        "mcp_handled": True,
-                        "requires_action": False
-                    })
-                
-                # Deliver response
-                await self._deliver_response(mcp_response)
-                self._set_state(SystemState.IDLE)
-                return
+            # AI-First Approach: Let LLM decide everything from the start
+            logger.info("Using AI-first approach - LLM will decide routing and actions")
             
-            # Try agent-based execution first (agent-centric approach)
-            agent_result = await self._try_agent_execution(user_input)
-            
-            if agent_result and agent_result.get('handled'):
-                # Agent handled the task successfully
-                agent_response = agent_result['response']
-                response_text = agent_response.message
-                
-                # Add agent-generated suggestions
-                if agent_response.suggestions:
-                    response_text += "\n\nSuggestions:\n" + "\n".join(f"• {s}" for s in agent_response.suggestions)
-                
-                # Store agent response
-                self.conversation_context.append({
-                    "role": "assistant",
-                    "content": response_text
-                })
-                
-                if config.privacy.store_conversations:
-                    await self.memory.store_interaction({
-                        "role": "assistant",
-                        "content": response_text,
-                        "timestamp": datetime.now().isoformat(),
-                        "agent": agent_response.agent_name,
-                        "requires_action": False
-                    })
-                
-                # Deliver response
-                await self._deliver_response(response_text)
-                self._set_state(SystemState.IDLE)
-                return
-            
-            # Fallback to LLM for complex reasoning or unhandled tasks
-            logger.info("Using LLM for task processing")
+            # Always start with AI to determine the best approach
+            # AI will decide if it needs agents, MCP tools, or can handle directly
             response = await self.ai.process_input(
                 user_input=user_input,
                 conversation_history=self.conversation_context,
-                system_context=await self._get_system_context()
+                system_context=await self._get_system_context(include_mcp=False)  # Start lightweight, AI will request MCP if needed
             )
             
             # If the response includes actions, we'll handle the response in _execute_actions
@@ -412,11 +359,31 @@ class PRISMCoordinator:
             
         except Exception as e:
             logger.error(f"Error processing input: {e}", exc_info=True)
-            error_message = "I encountered an error processing your request. Please try again."
+            
+            # Provide more specific error messages based on error type
+            if "UnicodeEncodeError" in str(e):
+                error_message = "I had trouble processing that message due to special characters. Could you try rephrasing?"
+            elif "ConnectionError" in str(e) or "websocket" in str(e).lower():
+                error_message = "I'm having connection issues. Let me try to reconnect..."
+                # Attempt to reconnect WebSocket
+                try:
+                    await self.websocket._connect_with_retry()
+                except:
+                    pass
+            elif "timeout" in str(e).lower():
+                error_message = "That request took too long to process. Please try a simpler command."
+            else:
+                error_message = "I encountered an error processing your request. Please try again."
+            
             await self._deliver_response(error_message)
             self._set_state(SystemState.ERROR)
-            # Return to idle after brief delay
-            await asyncio.sleep(2)
+            
+            # Return to idle after brief delay with exponential backoff
+            await asyncio.sleep(min(2.0, 0.5 * (getattr(self, '_error_count', 0) + 1)))
+            self._error_count = getattr(self, '_error_count', 0) + 1
+            if self._error_count > 5:
+                self._error_count = 0  # Reset after 5 errors
+            
             self._set_state(SystemState.IDLE)
 
     async def _handle_response(self, response):
@@ -498,15 +465,35 @@ class PRISMCoordinator:
                 if result.get("notify", False):
                     await self._deliver_response(result.get("message", "Action completed"))
                 elif not result.get("success", False):
-                    # Always notify on failure
-                    await self._deliver_response(result.get("message", "Action failed"))
+                    # Always notify on failure with recovery suggestions
+                    error_msg = result.get("message", "Action failed")
+                    if "window" in error_msg.lower() and "not found" in error_msg.lower():
+                        error_msg += ". The application might not be open or the window title might be different."
+                    elif "permission" in error_msg.lower() or "access" in error_msg.lower():
+                        error_msg += ". You might need to run as administrator or grant permissions."
+                    await self._deliver_response(error_msg)
                     
             except Exception as e:
                 logger.error(f"Error executing action {action.get('type', 'unknown')}: {e}", exc_info=True)
-                await self._deliver_response(f"I couldn't complete that action: {str(e)}")
+                
+                # Provide more helpful error messages
+                error_type = action.get('type', 'unknown')
+                if "timeout" in str(e).lower():
+                    error_msg = f"The {error_type} action timed out. The system might be busy."
+                elif "permission" in str(e).lower() or "access" in str(e).lower():
+                    error_msg = f"I don't have permission to perform the {error_type} action."
+                elif "not found" in str(e).lower():
+                    error_msg = f"I couldn't find the target for the {error_type} action."
+                else:
+                    error_msg = f"I couldn't complete the {error_type} action: {str(e)}"
+                
+                await self._deliver_response(error_msg)
+                
+                # Continue with other actions instead of stopping completely
+                continue
 
-    async def _get_system_context(self, force_refresh: bool = False) -> Dict[str, Any]:
-        """Get current system context for AI processing with caching"""
+    async def _get_system_context(self, force_refresh: bool = False, include_mcp: bool = True) -> Dict[str, Any]:
+        """Get current system context for AI processing with intelligent caching"""
         # Check cache validity
         now = datetime.now()
         if not force_refresh and self._system_context_cache and self._context_cache_time:
@@ -523,8 +510,9 @@ class PRISMCoordinator:
             "current_directory": self.system_control.get_current_directory(),
         }
         
-        # Add MCP context if available (expensive operation)
-        if self.mcp_enabled and self.mcp_client:
+        # Add MCP context only when needed (expensive operation)
+        # Skip MCP context for simple conversational tasks to improve performance
+        if include_mcp and self.mcp_enabled and self.mcp_client:
             try:
                 mcp_context = await self.mcp_client.get_screen_context()
                 if mcp_context.success:
@@ -606,6 +594,9 @@ class PRISMCoordinator:
             
             # Create coordinator
             self.agent_coordinator = AgentCoordinator(self.agent_registry)
+            
+            # Update SystemControl with agent coordinator for delegation
+            self.system_control.agent_coordinator = self.agent_coordinator
             
             stats = self.agent_registry.get_statistics()
             logger.success(f"Agent system initialized: {stats['total_agents']} agents registered")
@@ -819,6 +810,8 @@ class PRISMCoordinator:
             return None
     
     # ==================== Context Management ====================
+    
+    # Removed manual conversational detection - AI handles all routing decisions
 
     def clear_conversation_context(self):
         """Clear current conversation context"""
@@ -876,7 +869,7 @@ class PRISMCoordinator:
                 self.live_voice.on_error = self._on_live_voice_error
             
             # Start Live Voice session
-            system_instruction = "You are PRISM, a helpful AI assistant. Respond naturally and conversationally in a friendly tone. Keep responses concise but informative."
+            system_instruction = "You are PRISM, a friendly AI assistant. Be helpful and conversational."
             await self.live_voice.start_live_mode(system_instruction)
             
             self.live_voice_enabled = True

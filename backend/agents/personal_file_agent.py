@@ -126,6 +126,18 @@ class PersonalFileAgent(BaseAgent):
                     days = parameters.get('days', 90)
                     return await self._cleanup_old_files(days)
                 
+                elif task_type == 'delete_file':
+                    # Delete specific files by search term
+                    search_term = parameters.get('search_term', '')
+                    location = parameters.get('location')
+                    file_type = parameters.get('file_type')
+                    
+                    return await self._delete_files(
+                        search_term=search_term,
+                        location=location,
+                        file_type=file_type
+                    )
+                
                 elif task_type == 'run_command':
                     # Execute command prompt commands
                     command = parameters.get('command', '')
@@ -232,6 +244,37 @@ class PersonalFileAgent(BaseAgent):
                 error=str(e)
             )
     
+    def _normalize_for_search(self, text: str) -> str:
+        """Normalize text for fuzzy matching - remove spaces, punctuation, convert to lowercase"""
+        import re
+        # Remove all punctuation and spaces, convert to lowercase
+        normalized = re.sub(r'[^\w]', '', text.lower())
+        return normalized
+    
+    def _matches_search_term(self, filename: str, search_term: str) -> bool:
+        """Check if filename matches search term using fuzzy matching"""
+        if not search_term:
+            return True
+        
+        # Normalize both strings
+        normalized_filename = self._normalize_for_search(filename)
+        normalized_search = self._normalize_for_search(search_term)
+        
+        # Simple substring match after normalization
+        if normalized_search in normalized_filename:
+            return True
+        
+        # Also check if all words from search term appear in filename
+        search_words = [self._normalize_for_search(word) for word in search_term.split()]
+        if search_words:
+            # Check if all search words appear in filename (in any order)
+            for word in search_words:
+                if word and word not in normalized_filename:
+                    return False
+            return True
+        
+        return False
+    
     async def _search_files(
         self,
         search_term: Optional[str] = None,
@@ -248,6 +291,24 @@ class PersonalFileAgent(BaseAgent):
             file_type: Type of file (video, document, image, or None for all)
         """
         matches = []
+        
+        # Smart handling: if search_term is generic like "movie", "video", "music", etc.
+        # treat it as a file type search instead of literal filename search
+        generic_terms = {
+            'movie': 'video', 'movies': 'video', 'film': 'video', 'films': 'video', 'video': 'video', 'videos': 'video',
+            'music': 'audio', 'song': 'audio', 'songs': 'audio', 'audio': 'audio',
+            'picture': 'image', 'pictures': 'image', 'photo': 'image', 'photos': 'image', 'image': 'image', 'images': 'image',
+            'document': 'document', 'documents': 'document', 'doc': 'document', 'docs': 'document'
+        }
+        
+        if search_term and search_term.lower() in generic_terms:
+            # Convert generic term to file type search
+            original_term = search_term
+            if not file_type:  # Only if file_type wasn't already specified
+                file_type = generic_terms[search_term.lower()]
+            search_term = ""  # Search all files of this type
+            logger.info(f"Converted generic search '{original_term}' to file_type '{file_type}' search")
+        
         is_listing = search_term is None or search_term == ""
         
         # For searches AND listings, try fast search methods
@@ -338,11 +399,14 @@ class PersonalFileAgent(BaseAgent):
                 # Filter out None values
                 search_locations = [loc for loc in search_locations if loc is not None]
             else:
-                # Search in common directories
+                # Search in common directories, including media-specific locations
                 search_locations = [
                     Path.home() / "Downloads",
-                    Path.home() / "Documents",
+                    Path.home() / "Documents", 
                     Path.home() / "Desktop",
+                    Path.home() / "Videos",
+                    Path.home() / "Music",
+                    Path.home() / "Pictures",
                 ]
             
             # Determine file extensions to look for based on file_type
@@ -355,6 +419,8 @@ class PersonalFileAgent(BaseAgent):
                     'audio': self.CATEGORIES.get('audio', []),
                     'code': self.CATEGORIES.get('code', []),
                     'archive': self.CATEGORIES.get('archives', []),
+                    'application': ['.exe', '.msi', '.app', '.deb', '.rpm', '.dmg', '.pkg'],
+                    'app': ['.exe', '.msi', '.app', '.deb', '.rpm', '.dmg', '.pkg'],
                 }
                 target_extensions = type_map.get(file_type.lower())
             
@@ -395,8 +461,8 @@ class PersonalFileAgent(BaseAgent):
                             if not file_path.is_file():
                                 continue
                             
-                            # Check if search term matches
-                            if search_term and search_term.lower() not in file_path.name.lower():
+                            # Check if search term matches using fuzzy matching
+                            if search_term and not self._matches_search_term(file_path.name, search_term):
                                 continue
                             
                             # Check file type if specified
@@ -548,6 +614,91 @@ class PersonalFileAgent(BaseAgent):
         except Exception as e:
             return AgentResponse.failure(
                 message=f"Cleanup failed: {str(e)}",
+                agent_name=self.name,
+                error=str(e)
+            )
+    
+    async def _delete_files(
+        self,
+        search_term: Optional[str] = None,
+        location: Optional[str] = None,
+        file_type: Optional[str] = None
+    ) -> AgentResponse:
+        """
+        Delete files matching search criteria
+        
+        Args:
+            search_term: Keywords to search for in filename
+            location: Where to search (downloads, documents, desktop, or None for all)
+            file_type: Type of file (video, document, image, or None for all)
+        """
+        try:
+            # First search for the files
+            search_result = await self._search_files(
+                search_term=search_term,
+                location=location,
+                file_type=file_type
+            )
+            
+            if not search_result.is_success():
+                return search_result
+            
+            matches = search_result.data.get('matches', [])
+            
+            if not matches:
+                location_str = f" in {location}" if location else ""
+                file_type_str = f" ({file_type} files)" if file_type else ""
+                return AgentResponse.failure(
+                    message=f"No files found matching '{search_term}'{location_str}{file_type_str}",
+                    agent_name=self.name,
+                    error="No matching files found"
+                )
+            
+            # Delete the files
+            deleted_count = 0
+            deleted_files = []
+            failed_files = []
+            
+            for file_match in matches:
+                try:
+                    file_path = Path(file_match['path'])
+                    if file_path.exists():
+                        file_path.unlink()
+                        deleted_count += 1
+                        deleted_files.append(file_path.name)
+                    else:
+                        failed_files.append(file_path.name)
+                except Exception as e:
+                    logger.warning(f"Failed to delete {file_match.get('name', 'unknown')}: {e}")
+                    failed_files.append(file_match.get('name', 'unknown'))
+            
+            # Build response message
+            message = f"Deleted {deleted_count} file(s)"
+            if deleted_files:
+                if len(deleted_files) <= 5:
+                    message += f": {', '.join(deleted_files)}"
+                else:
+                    message += f": {', '.join(deleted_files[:5])} and {len(deleted_files) - 5} more"
+            
+            if failed_files:
+                message += f". Failed to delete {len(failed_files)} file(s)"
+            
+            return AgentResponse.success(
+                message=message,
+                agent_name=self.name,
+                data={
+                    'deleted_count': deleted_count,
+                    'deleted_files': deleted_files,
+                    'failed_files': failed_files,
+                    'total_found': len(matches)
+                },
+                actions_taken=[f"Deleted {deleted_count} file(s)"]
+            )
+            
+        except Exception as e:
+            logger.error(f"Error deleting files: {e}", exc_info=True)
+            return AgentResponse.failure(
+                message=f"Failed to delete files: {str(e)}",
                 agent_name=self.name,
                 error=str(e)
             )
@@ -739,6 +890,8 @@ class PersonalFileAgent(BaseAgent):
                     'audio': self.CATEGORIES.get('audio', []),
                     'code': self.CATEGORIES.get('code', []),
                     'archive': self.CATEGORIES.get('archives', []),
+                    'application': ['.exe', '.msi', '.app', '.deb', '.rpm', '.dmg', '.pkg'],
+                    'app': ['.exe', '.msi', '.app', '.deb', '.rpm', '.dmg', '.pkg'],
                 }
                 extensions = type_map.get(file_type.lower(), [])
                 if extensions:
@@ -935,14 +1088,10 @@ class PersonalFileAgent(BaseAgent):
                     continue
                 
                 # Use dir /s /b /a-d to recursively search (exclude directories)
-                # Format: dir /s /b /a-d "*search_term*"
-                # If search_term is "*", list all files
-                if search_term == "*":
-                    search_pattern = "*.*"  # All files
-                else:
-                    search_pattern = f"*{search_term}*"
+                # Use *.* pattern and filter with fuzzy matching for better results
+                search_pattern = "*.*"  # Get all files, filter with fuzzy matching
                 
-                logger.info(f"DIR searching for '{search_pattern}' in {search_loc}")
+                logger.info(f"DIR searching for '{search_term or '*.*'}' in {search_loc}")
                 
                 try:
                     result = subprocess.run(
@@ -967,6 +1116,11 @@ class PersonalFileAgent(BaseAgent):
                                 if not file_path.is_file():
                                     continue
                                 
+                                # Filter by search term using fuzzy matching
+                                if search_term and search_term != "*":
+                                    if not self._matches_search_term(file_path.name, search_term):
+                                        continue
+                                
                                 # Filter by file type if specified
                                 if file_type:
                                     type_map = {
@@ -976,6 +1130,8 @@ class PersonalFileAgent(BaseAgent):
                                         'audio': self.CATEGORIES.get('audio', []),
                                         'code': self.CATEGORIES.get('code', []),
                                         'archive': self.CATEGORIES.get('archives', []),
+                                        'application': ['.exe', '.msi', '.app', '.deb', '.rpm', '.dmg', '.pkg'],
+                                        'app': ['.exe', '.msi', '.app', '.deb', '.rpm', '.dmg', '.pkg'],
                                     }
                                     extensions = type_map.get(file_type.lower(), [])
                                     if extensions and file_path.suffix.lower() not in extensions:

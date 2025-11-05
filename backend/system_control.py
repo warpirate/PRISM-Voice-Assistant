@@ -23,10 +23,11 @@ class SystemControl:
     - System commands
     """
 
-    def __init__(self, mcp_client=None):
+    def __init__(self, mcp_client=None, agent_coordinator=None):
         self.system = platform.system()
         self.current_dir = Path.home()
         self.mcp_client = mcp_client
+        self.agent_coordinator = agent_coordinator  # For agent delegation
         
         # Scan installed applications at startup
         logger.info("Scanning installed applications...")
@@ -118,6 +119,13 @@ class SystemControl:
             
             elif action_type == "mcp_click":
                 return await self.mcp_click(parameters.get("x"), parameters.get("y"))
+            
+            elif action_type == "agent_call":
+                return await self.call_agent(
+                    parameters.get("agent"),
+                    parameters.get("task"),
+                    parameters.get("params", {})
+                )
             
             else:
                 return {
@@ -840,6 +848,63 @@ class SystemControl:
         except Exception as e:
             logger.error(f"Error clicking: {e}")
             return {"success": False, "message": str(e), "notify": False}
+
+    async def call_agent(self, agent_name: str, task: str, params: Dict[str, Any]) -> Dict[str, Any]:
+        """Call a specialized agent to handle complex tasks"""
+        try:
+            if not self.agent_coordinator:
+                return {
+                    "success": False,
+                    "message": "Agent system not available",
+                    "notify": False
+                }
+            
+            # Map agent names to capabilities
+            agent_map = {
+                "PersonalFileAgent": "file_management",
+                "PersonalWebAgent": "web_operations", 
+                "PersonalProductivityAgent": "productivity"
+            }
+            
+            agent_type = agent_map.get(agent_name)
+            if not agent_type:
+                return {
+                    "success": False,
+                    "message": f"Unknown agent: {agent_name}",
+                    "notify": False
+                }
+            
+            # Create intent data for agent
+            intent_data = {
+                "agent_type": agent_type,
+                "task_type": task,
+                "parameters": params
+            }
+            
+            # Call agent through coordinator
+            response = await self.agent_coordinator.execute_task_with_intent(intent_data)
+            
+            if response.status.value == "success":
+                return {
+                    "success": True,
+                    "message": response.message,
+                    "notify": True,  # Always notify user of agent results
+                    "data": response.data
+                }
+            else:
+                return {
+                    "success": False,
+                    "message": response.message or f"Agent {agent_name} failed to complete task",
+                    "notify": True  # Always notify user of failures too
+                }
+                
+        except Exception as e:
+            logger.error(f"Error calling agent {agent_name}: {e}")
+            return {
+                "success": False,
+                "message": f"Error calling agent: {str(e)}",
+                "notify": False
+            }
 
     def get_system_info(self) -> Dict[str, Any]:
         """Get system information"""

@@ -181,17 +181,7 @@ class PRISMMCPClient:
             image = Image.open(BytesIO(image_data))
             
             # Prepare prompt
-            prompt = f"""
-            Analyze this screenshot and answer: {question}
-            
-            Focus on:
-            - Visible applications and their content
-            - UI elements and their state
-            - Any text that's readable
-            - Overall context of what's happening on screen
-            
-            Be specific and concise in your analysis.
-            """
+            prompt = f"Analyze this screenshot and answer: {question}. Be specific and concise."
             
             # Call Gemini Vision
             model = genai.GenerativeModel(self.gemini_model)

@@ -1,0 +1,498 @@
+/**
+ * PRISM Enhanced Glassmorphic UI Styles
+ * Modern glass effect styling for PRISM AI assistant
+ */
+
+/* ============================================================================
+   Glass Effect Variables
+   ============================================================================ */
+
+:root {
+  /* Primary color palette - keep your existing colors */
+  --primary-color: #6366f1;
+  --primary-dark: #4f46e5;
+  --primary-light: #818cf8;
+  --secondary-color: #8b5cf6;
+  --accent-color: #ec4899;
+  
+  /* Enhanced glass effect */
+  --glass-bg: rgba(15, 15, 35, 0.2);
+  --glass-border: rgba(255, 255, 255, 0.1);
+  --glass-highlight: rgba(255, 255, 255, 0.08);
+  --glass-shadow: rgba(0, 0, 0, 0.3);
+  
+  /* Improved blur effects */
+  --blur-sm: 5px;
+  --blur-md: 10px;
+  --blur-lg: 20px;
+  
+  /* Animation speeds */
+  --transition-fast: 200ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  --transition-normal: 300ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
+  --transition-slow: 500ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+/* ============================================================================
+   Modern Glassmorphic Container
+   ============================================================================ */
+
+.glass-container {
+  background: linear-gradient(135deg, rgba(15, 15, 35, 0.6) 0%, rgba(10, 10, 30, 0.75) 100%);
+  backdrop-filter: blur(var(--blur-md));
+  -webkit-backdrop-filter: blur(var(--blur-md));
+  border-radius: 24px;
+  border: 1px solid var(--glass-border);
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.4),
+    0 0 80px rgba(99, 102, 241, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  overflow: hidden;
+  position: relative;
+  transition: all var(--transition-normal);
+}
+
+.glass-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg, 
+    transparent, 
+    rgba(255, 255, 255, 0.1), 
+    transparent
+  );
+  z-index: 1;
+}
+
+.glass-container:hover {
+  box-shadow: 
+    0 10px 40px rgba(0, 0, 0, 0.5),
+    0 0 100px rgba(99, 102, 241, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.07);
+}
+
+/* ============================================================================
+   Glass Orb Enhancement
+   ============================================================================ */
+
+.orb.glass-enhanced {
+  position: relative;
+  cursor: pointer;
+  transition: transform var(--transition-normal);
+}
+
+.orb.glass-enhanced .orb-inner {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, 
+    rgba(139, 92, 246, 0.8),
+    rgba(99, 102, 241, 0.6)
+  );
+  box-shadow: 
+    0 0 30px rgba(99, 102, 241, 0.6),
+    0 0 60px rgba(139, 92, 246, 0.4),
+    0 0 90px rgba(99, 102, 241, 0.2),
+    inset 0 5px 15px rgba(255, 255, 255, 0.2),
+    inset 0 -5px 15px rgba(0, 0, 0, 0.2);
+  position: relative;
+  overflow: hidden;
+  animation: orbFloat 6s ease-in-out infinite;
+  transform-style: preserve-3d;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.orb.glass-enhanced .orb-glow {
+  position: absolute;
+  top: -10%;
+  left: -10%;
+  width: 120%;
+  height: 120%;
+  background: radial-gradient(circle at center, 
+    rgba(255, 255, 255, 0.4) 0%,
+    transparent 70%
+  );
+  opacity: 0.6;
+  border-radius: 50%;
+  filter: blur(8px);
+  z-index: 2;
+  animation: orbGlow 8s ease-in-out infinite alternate;
+}
+
+.orb.glass-enhanced .orb-reflection {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.3) 0%,
+    transparent 50%,
+    rgba(255, 255, 255, 0.1) 100%
+  );
+  transform: rotate(-15deg);
+  z-index: 1;
+}
+
+@keyframes orbFloat {
+  0%, 100% { 
+    transform: translateY(0) scale(1); 
+  }
+  50% { 
+    transform: translateY(-8px) scale(1.02); 
+  }
+}
+
+@keyframes orbGlow {
+  0% {
+    opacity: 0.5;
+    transform: scale(1) rotate(0deg);
+  }
+  100% {
+    opacity: 0.8;
+    transform: scale(1.05) rotate(20deg);
+  }
+}
+
+/* State-specific animations with glass effect */
+.orb.glass-enhanced.listening .orb-inner {
+  background: radial-gradient(circle at 30% 30%, 
+    rgba(16, 185, 129, 0.9),
+    rgba(16, 185, 129, 0.6)
+  );
+  animation: orbListeningPulse 1.5s ease-in-out infinite;
+}
+
+@keyframes orbListeningPulse {
+  0%, 100% { 
+    transform: scale(1);
+    box-shadow: 0 0 30px rgba(16, 185, 129, 0.6);
+  }
+  50% { 
+    transform: scale(1.08); 
+    box-shadow: 0 0 40px rgba(16, 185, 129, 0.8);
+  }
+}
+
+.orb.glass-enhanced.processing .orb-inner {
+  background: radial-gradient(circle at 30% 30%, 
+    rgba(245, 158, 11, 0.9),
+    rgba(245, 158, 11, 0.6)
+  );
+  animation: orbProcessingSpin 3s linear infinite;
+}
+
+@keyframes orbProcessingSpin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* ============================================================================
+   Modern Glass Cards
+   ============================================================================ */
+
+.glass-card {
+  background: rgba(15, 15, 35, 0.3);
+  backdrop-filter: blur(var(--blur-md));
+  -webkit-backdrop-filter: blur(var(--blur-md));
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 
+    0 4px 24px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  padding: 20px;
+  transition: all var(--transition-normal);
+  position: relative;
+  overflow: hidden;
+}
+
+.glass-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    135deg,
+    rgba(255, 255, 255, 0.05),
+    transparent
+  );
+  z-index: -1;
+}
+
+.glass-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 
+    0 8px 32px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* ============================================================================
+   Enhanced Input Area
+   ============================================================================ */
+
+.input-area.glass-enhanced {
+  display: flex;
+  gap: 10px;
+  padding: 16px;
+  background: rgba(0, 0, 0, 0.2);
+  border-top: 1px solid rgba(99, 102, 241, 0.1);
+  backdrop-filter: blur(var(--blur-md));
+  transition: all var(--transition-normal);
+}
+
+.text-input.glass-enhanced {
+  flex: 1;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  padding: 12px 16px;
+  color: #ffffff;
+  font-size: 14px;
+  outline: none;
+  transition: all var(--transition-fast);
+  box-shadow: 
+    0 4px 8px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.text-input.glass-enhanced:focus {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: var(--primary-color);
+  box-shadow: 
+    0 4px 12px rgba(99, 102, 241, 0.15),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+/* ============================================================================
+   Enhanced Buttons
+   ============================================================================ */
+
+.glass-btn {
+  background: rgba(99, 102, 241, 0.6);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: none;
+  border-radius: 16px;
+  color: #ffffff;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 12px 16px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+  transition: all var(--transition-fast);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 
+    0 4px 12px rgba(0, 0, 0, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.glass-btn::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 100%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(255, 255, 255, 0.2),
+    transparent
+  );
+  transition: all 0.6s ease;
+}
+
+.glass-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 
+    0 6px 16px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.glass-btn:hover::before {
+  left: 100%;
+}
+
+.glass-btn:active {
+  transform: translateY(0);
+}
+
+.glass-btn.secondary {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+/* Special Voice Button */
+.voice-btn.glass-enhanced,
+.live-voice-btn.glass-enhanced {
+  width: 48px;
+  height: 48px;
+  border-radius: 16px;
+  background: linear-gradient(135deg, var(--primary-color), var(--primary-dark));
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  box-shadow: 
+    0 4px 12px rgba(99, 102, 241, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  position: relative;
+  overflow: hidden;
+}
+
+.voice-btn.glass-enhanced.active {
+  background: linear-gradient(135deg, var(--listening-color), #059669);
+  animation: voiceActivePulse 1.5s ease-in-out infinite;
+}
+
+@keyframes voiceActivePulse {
+  0%, 100% { 
+    box-shadow: 
+      0 4px 12px rgba(16, 185, 129, 0.3),
+      inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  }
+  50% { 
+    box-shadow: 
+      0 4px 20px rgba(16, 185, 129, 0.6),
+      inset 0 1px 0 rgba(255, 255, 255, 0.3);
+  }
+}
+
+/* ============================================================================
+   Enhanced Conversation Panel
+   ============================================================================ */
+
+.conversation-panel.glass-enhanced {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.25);
+  margin: 0 16px 16px 16px;
+  border-radius: 20px;
+  border: 1px solid rgba(99, 102, 241, 0.1);
+  box-shadow: 
+    inset 0 2px 10px rgba(0, 0, 0, 0.3),
+    0 4px 20px rgba(0, 0, 0, 0.15);
+}
+
+.message.glass-enhanced {
+  animation: messageSlideInEnhanced 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+@keyframes messageSlideInEnhanced {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.message.user-message.glass-enhanced .message-content {
+  background: linear-gradient(135deg, 
+    rgba(99, 102, 241, 0.75), 
+    rgba(79, 70, 229, 0.6)
+  );
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border-radius: 16px 16px 4px 16px;
+  box-shadow: 
+    0 4px 12px rgba(99, 102, 241, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.message.assistant-message.glass-enhanced .message-content {
+  background: rgba(255, 255, 255, 0.07);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border-radius: 16px 16px 16px 4px;
+  box-shadow: 
+    0 2px 8px rgba(0, 0, 0, 0.1),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+/* ============================================================================
+   Enhanced Settings Panel
+   ============================================================================ */
+
+.settings-panel.glass-enhanced {
+  background: linear-gradient(135deg, 
+    rgba(30, 30, 50, 0.85) 0%, 
+    rgba(20, 20, 40, 0.95) 100%
+  );
+  backdrop-filter: blur(var(--blur-lg));
+  -webkit-backdrop-filter: blur(var(--blur-lg));
+  border-radius: 24px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 
+    0 10px 40px rgba(0, 0, 0, 0.5),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
+}
+
+.settings-panel.glass-enhanced .setting-group select,
+.settings-panel.glass-enhanced .setting-group input[type="range"] {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 12px 16px;
+  color: #ffffff;
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.settings-panel.glass-enhanced .setting-group select:focus,
+.settings-panel.glass-enhanced .setting-group input[type="range"]:focus {
+  border-color: var(--primary-color);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Custom range slider styling */
+.settings-panel.glass-enhanced input[type="range"] {
+  -webkit-appearance: none;
+  height: 6px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 3px;
+  padding: 0;
+}
+
+.settings-panel.glass-enhanced input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: var(--primary-color);
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.settings-panel.glass-enhanced input[type="range"]::-webkit-slider-thumb:hover {
+  transform: scale(1.1);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.5);
+}
+
+/* ============================================================================
+   SVG Filter for Advanced Glass Effect
+   ============================================================================ */
+
+.glass-filter {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 0;
+  height: 0;
+  z-index: -100;
+  pointer-events: none;
+  opacity: 0;
+}

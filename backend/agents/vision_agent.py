@@ -185,27 +185,17 @@ class VisionAgent(BaseAgent):
                 img_byte_arr = img_byte_arr.getvalue()
                 
                 # Create prompt for element detection
-                prompt = f"""Analyze this screenshot and find the UI element: "{element_desc}"
+                prompt = f"""Find UI element: "{element_desc}"
 
-Respond with a JSON object containing:
-1. "found": true/false - whether the element was found
-2. "x": approximate X coordinate (0-{img.width})
-3. "y": approximate Y coordinate (0-{img.height})
-4. "confidence": 0.0-1.0 confidence score
-5. "description": brief description of what you found
-6. "type": element type (button, text_field, search_box, etc.)
+Return JSON:
+- found: true/false
+- x: X coordinate (0-{img.width})
+- y: Y coordinate (0-{img.height})
+- confidence: 0.0-1.0
+- description: what you found
+- type: element type
 
-Example response:
-{{
-  "found": true,
-  "x": 450,
-  "y": 300,
-  "confidence": 0.95,
-  "description": "Message input field at bottom of chat window",
-  "type": "text_field"
-}}
-
-Respond ONLY with the JSON object, no other text."""
+JSON only:"""
 
                 # Call vision model
                 response = await asyncio.get_event_loop().run_in_executor(
@@ -328,17 +318,15 @@ Respond ONLY with the JSON object, no other text."""
                 img.save(img_byte_arr, format='PNG')
                 img_byte_arr = img_byte_arr.getvalue()
                 
-                prompt = f"""Analyze this screenshot and verify if the UI state matches: "{expected}"
+                prompt = f"""Verify UI state matches: "{expected}"
 
-Respond with a JSON object:
-{{
-  "matches": true/false,
-  "confidence": 0.0-1.0,
-  "current_state": "description of what you see",
-  "differences": "what doesn't match (if any)"
-}}
+Return JSON:
+- matches: true/false
+- confidence: 0.0-1.0
+- current_state: what you see
+- differences: what doesn't match
 
-Respond ONLY with JSON, no other text."""
+JSON only:"""
 
                 response = await asyncio.get_event_loop().run_in_executor(
                     None,

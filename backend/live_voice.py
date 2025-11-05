@@ -59,7 +59,7 @@ class LiveVoiceSession:
         
         logger.info(f"LiveVoiceSession initialized with model: {model}")
     
-    async def start(self, system_instruction: str = "You are PRISM, a helpful AI assistant. Respond naturally and conversationally."):
+    async def start(self, system_instruction: str = "You are PRISM, a friendly AI assistant."):
         """Start the live voice session"""
         if self.is_active:
             logger.warning("Live voice session already active")
@@ -410,7 +410,7 @@ class LiveVoiceManager:
             self.current_session.on_error = self._handle_error
             
             # Start session
-            instruction = system_instruction or "You are PRISM, a helpful AI assistant. Respond naturally and conversationally in a friendly tone."
+            instruction = system_instruction or "You are PRISM, a friendly AI assistant."
             await self.current_session.start(system_instruction=instruction)
             
             self.is_live_mode = True
