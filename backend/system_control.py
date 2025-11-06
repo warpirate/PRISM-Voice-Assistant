@@ -852,7 +852,10 @@ class SystemControl:
     async def call_agent(self, agent_name: str, task: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Call a specialized agent to handle complex tasks"""
         try:
+            logger.info(f"SystemControl.call_agent: {agent_name}, task: {task}, params: {params}")
+            
             if not self.agent_coordinator:
+                logger.error("Agent coordinator not available")
                 return {
                     "success": False,
                     "message": "Agent system not available",
@@ -868,6 +871,7 @@ class SystemControl:
             
             agent_type = agent_map.get(agent_name)
             if not agent_type:
+                logger.error(f"Unknown agent: {agent_name}")
                 return {
                     "success": False,
                     "message": f"Unknown agent: {agent_name}",
@@ -881,8 +885,12 @@ class SystemControl:
                 "parameters": params
             }
             
+            logger.info(f"Calling agent with intent_data: {intent_data}")
+            
             # Call agent through coordinator
             response = await self.agent_coordinator.execute_task_with_intent(intent_data)
+            
+            logger.info(f"Agent response: status={response.status.value}, message={response.message}")
             
             if response.status.value == "success":
                 return {

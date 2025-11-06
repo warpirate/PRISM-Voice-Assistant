@@ -81,10 +81,10 @@ class AIEngine:
         Parameters: search_term, location, file_type, path
 
         **PersonalWebAgent** (web_operations):
-        - "research": Research topics online
-        - "web_search": Search the web
-        - "monitor": Monitor websites
-        - "save_content": Save web content
+        - "research": Research topics online and return information
+        - "web_search": Search the web and return actual results/information
+        - "monitor": Monitor websites for changes
+        - "save_content": Save web content locally
 
         **PersonalProductivityAgent** (productivity):
         - "start_focus_session": Begin focus/work session
@@ -92,7 +92,20 @@ class AIEngine:
         - "suggest_break": Suggest break times
         - "get_stats": Show productivity statistics
 
-        **Agent Delegation**:
+        **CRITICAL: Agent vs Direct Action Decision**:
+        
+        **Use PersonalWebAgent for**: Information gathering, research, getting search results
+        - "search for cyclone updates" → PersonalWebAgent returns actual information
+        - "research AI trends" → PersonalWebAgent returns research data
+        - "find news about..." → PersonalWebAgent returns news results
+        
+        **Use Direct System Actions for**: Opening applications, browser control
+        - "open chrome" → Direct system action to launch browser
+        - "open firefox" → Direct system action to launch browser
+        - "close browser" → Direct system action
+        
+        **Agent Call Format**:
+        ACTION: {"type": "agent_call", "parameters": {"agent": "PersonalWebAgent", "task": "web_search", "params": {"query": "your search query"}}}
         ACTION: {"type": "agent_call", "parameters": {"agent": "PersonalFileAgent", "task": "open_file", "params": {"search_term": "movie_name", "file_type": "video"}}}
 
         **Direct System Actions**:
@@ -102,8 +115,29 @@ class AIEngine:
         - mcp_type_text: {"text": "text to type"}
         - mcp_click: {"x": 100, "y": 200}
         - mcp_hotkey: {"keys": "ctrl+c"}
-        - web_search: {"query": "search_query"}
         - get_memory_info: {}
+
+        **Examples**:
+        User: "search for cyclone updates in andhra pradesh" (wants information)
+        ACTION: {"type": "agent_call", "parameters": {"agent": "PersonalWebAgent", "task": "web_search", "params": {"query": "cyclone updates andhra pradesh"}}}
+
+        User: "kindly search for the cyclone updates in the andhra pradesh and let me know" (wants information)
+        ACTION: {"type": "agent_call", "parameters": {"agent": "PersonalWebAgent", "task": "web_search", "params": {"query": "cyclone updates andhra pradesh"}}}
+
+        User: "open chrome" (wants to launch browser)
+        ACTION: {"type": "open_application", "parameters": {"name": "chrome"}}
+
+        User: "open chrome and search for weather" (wants browser opened)
+        ACTION: {"type": "open_application", "parameters": {"name": "chrome"}}
+
+        User: "find my movies" (file operation)
+        ACTION: {"type": "agent_call", "parameters": {"agent": "PersonalFileAgent", "task": "search_files", "params": {"file_type": "video"}}}
+
+        User: "research artificial intelligence" (wants information)
+        ACTION: {"type": "agent_call", "parameters": {"agent": "PersonalWebAgent", "task": "research", "params": {"topic": "artificial intelligence"}}}
+
+        User: "start a focus session" (productivity task)
+        ACTION: {"type": "agent_call", "parameters": {"agent": "PersonalProductivityAgent", "task": "start_focus_session", "params": {"duration": 25}}}
 
         **Key Principles**:
         1. Understand user intent, not just literal words
@@ -112,6 +146,8 @@ class AIEngine:
         4. Use direct actions for immediate system control
         5. Support both English and Telugu naturally
         6. Think intelligently about what users actually want
+        7. PersonalWebAgent returns information - use for research/search queries
+        8. Direct system actions control applications - use for "open/close app"
 
         **Action Format**: ACTION: {"type": "action_type", "parameters": {...}}
         """

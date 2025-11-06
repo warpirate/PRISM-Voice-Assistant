@@ -29,6 +29,10 @@ class AIConfig(BaseModel):
     temperature: float = Field(default=0.7, ge=0.0, le=2.0)
     max_tokens: int = Field(default=2048)  # Increased for better responses
 
+class WebSearchConfig(BaseModel):
+    """Web search settings"""
+    brave_api_key: Optional[str] = Field(default=None)
+
 class UIConfig(BaseModel):
     """User interface settings"""
     theme: str = Field(default="dark")  # dark, light, auto
@@ -53,6 +57,7 @@ class SystemConfig(BaseModel):
     
     voice: VoiceConfig = Field(default_factory=VoiceConfig)
     ai: AIConfig = Field(default_factory=AIConfig)
+    web_search: WebSearchConfig = Field(default_factory=WebSearchConfig)
     ui: UIConfig = Field(default_factory=UIConfig)
     privacy: PrivacyConfig = Field(default_factory=PrivacyConfig)
 
@@ -79,6 +84,9 @@ class SystemConfig(BaseModel):
         self.ai.provider = os.getenv("AI_PROVIDER", self.ai.provider)
         self.ai.gemini_api_key = os.getenv("GEMINI_API_KEY")
         self.ai.model = os.getenv("GEMINI_MODEL", self.ai.model)
+
+        # Web search settings
+        self.web_search.brave_api_key = os.getenv("BRAVE_SEARCH_API_KEY")
 
         # UI settings
         self.ui.theme = os.getenv("THEME", self.ui.theme)
