@@ -409,10 +409,10 @@ class PersonalWebAgent(BaseAgent):
                 suggestions=["Ask me for more specific details if needed"]
             )
             
-        except requests.RequestException as e:
+        except Exception as e:
             logger.error(f"Brave Search API request failed: {e}")
             return await self._fallback_web_search(query)
-    
+
     async def _create_ai_summary(self, query: str, results: List[Dict]) -> str:
         """Create an intelligent summary using AI"""
         try:

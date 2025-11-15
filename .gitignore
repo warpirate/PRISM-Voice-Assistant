@@ -73,3 +73,5 @@ release/
 venv
 
 Windows-MCP/
+
+lifeguard.yaml
