@@ -181,7 +181,7 @@ def _build_context(self, system_context: Dict) -> str:
     Build context string from system information:
     - Current directory
     - Running applications
-    - Screen context (if MCP available)
+    - System context (if available)
     - Recent conversation
     """
     context_parts = ["Current system context:"]

@@ -23,10 +23,9 @@ class SystemControl:
     - System commands
     """
 
-    def __init__(self, mcp_client=None, agent_coordinator=None):
+    def __init__(self, agent_coordinator=None):
         self.system = platform.system()
         self.current_dir = Path.home()
-        self.mcp_client = mcp_client
         self.agent_coordinator = agent_coordinator  # For agent delegation
         
         # Scan installed applications at startup
@@ -76,10 +75,14 @@ class SystemControl:
         
         try:
             if action_type == "open_application":
-                return await self.open_application(parameters.get("name"))
+                # Accept multiple parameter names for flexibility
+                app_name = parameters.get("name") or parameters.get("application_name") or parameters.get("app_name")
+                return await self.open_application(app_name)
             
             elif action_type == "close_application":
-                return await self.close_application(parameters.get("name"))
+                # Accept multiple parameter names for flexibility
+                app_name = parameters.get("name") or parameters.get("application_name") or parameters.get("app_name")
+                return await self.close_application_basic(app_name)
             
             elif action_type == "open_file":
                 return await self.open_file(parameters.get("path"))
@@ -105,21 +108,6 @@ class SystemControl:
             elif action_type == "get_memory_info":
                 return await self.get_memory_info()
             
-            elif action_type == "mcp_focus_window":
-                return await self.mcp_focus_window(parameters.get("title"))
-            
-            elif action_type == "mcp_hotkey":
-                return await self.mcp_hotkey(parameters.get("keys"))
-            
-            elif action_type == "mcp_type_text":
-                return await self.mcp_type_text(parameters.get("text"))
-            
-            elif action_type == "mcp_press_key":
-                return await self.mcp_press_key(parameters.get("key"))
-            
-            elif action_type == "mcp_click":
-                return await self.mcp_click(parameters.get("x"), parameters.get("y"))
-            
             elif action_type == "agent_call":
                 return await self.call_agent(
                     parameters.get("agent"),
@@ -127,6 +115,7 @@ class SystemControl:
                     parameters.get("params", {})
                 )
             
+
             else:
                 return {
                     "success": False,
@@ -669,13 +658,13 @@ class SystemControl:
             logger.error(f"Error getting running applications: {e}")
             return []
 
-    async def close_application(self, app_name: str) -> Dict[str, Any]:
+    async def close_application_basic(self, app_name: str) -> Dict[str, Any]:
         """
-        Close an application using MCP
+        Close an application using basic system methods
         """
         try:
-            if not self.mcp_client:
-                return {"success": False, "message": "MCP client not available", "notify": True}
+            if not app_name:
+                return {"success": False, "message": "No application name provided", "notify": True}
             
             # Normalize app name
             app_name_normalized = app_name.lower().strip()
@@ -683,9 +672,19 @@ class SystemControl:
                 app_name_normalized = app_name_normalized.replace(suffix, '')
             app_name_normalized = app_name_normalized.strip()
             
-            result = await self.mcp_client.close_application_smart(app_name_normalized)
+            # Try to find and terminate the process
+            terminated = False
+            for proc in psutil.process_iter(['name']):
+                try:
+                    proc_name = proc.info['name'].lower()
+                    if app_name_normalized in proc_name or proc_name.startswith(app_name_normalized):
+                        proc.terminate()
+                        terminated = True
+                        logger.info(f"Terminated process: {proc.info['name']}")
+                except (psutil.NoSuchProcess, psutil.AccessDenied):
+                    continue
             
-            if result.success:
+            if terminated:
                 return {
                     "success": True,
                     "message": f"Closed {app_name}",
@@ -694,9 +693,10 @@ class SystemControl:
             else:
                 return {
                     "success": False,
-                    "message": result.error or f"Could not close {app_name}",
+                    "message": f"Could not find running process for {app_name}",
                     "notify": True
                 }
+                
         except Exception as e:
             logger.error(f"Error closing application {app_name}: {e}")
             return {
@@ -707,30 +707,30 @@ class SystemControl:
     
     async def get_memory_info(self) -> Dict[str, Any]:
         """
-        Get system memory information using MCP
+        Get system memory information using psutil
         """
         try:
-            if not self.mcp_client:
-                return {"success": False, "message": "MCP client not available", "notify": False}
+            memory = psutil.virtual_memory()
             
-            import json
+            total_gb = memory.total / (1024**3)
+            used_gb = memory.used / (1024**3)
+            available_gb = memory.available / (1024**3)
+            percent_used = memory.percent
             
-            result = await self.mcp_client.call_tool("get_memory_info")
+            mem_data = {
+                "total_gb": round(total_gb, 1),
+                "used_gb": round(used_gb, 1),
+                "available_gb": round(available_gb, 1),
+                "percent_used": round(percent_used, 1)
+            }
             
-            if result.success:
-                mem_data = json.loads(result.data)
-                return {
-                    "success": True,
-                    "message": f"RAM: {mem_data['used_gb']:.1f}GB used / {mem_data['total_gb']:.1f}GB total ({mem_data['percent_used']:.1f}% used)",
-                    "data": mem_data,
-                    "notify": False
-                }
-            else:
-                return {
-                    "success": False,
-                    "message": "Could not retrieve memory information",
-                    "notify": False
-                }
+            return {
+                "success": True,
+                "message": f"RAM: {used_gb:.1f}GB used / {total_gb:.1f}GB total ({percent_used:.1f}% used)",
+                "data": mem_data,
+                "notify": False
+            }
+            
         except Exception as e:
             logger.error(f"Error getting memory info: {e}")
             return {
@@ -739,116 +739,6 @@ class SystemControl:
                 "notify": False
             }
     
-    async def mcp_focus_window(self, title: str) -> Dict[str, Any]:
-        """Focus a window by title using MCP"""
-        try:
-            if not self.mcp_client:
-                return {"success": False, "message": "MCP client not available", "notify": False}
-            
-            import json
-            
-            result = await self.mcp_client.call_tool("focus_window", title=title)
-            
-            if result.success and result.data:
-                response = json.loads(result.data)
-                if response.get("success"):
-                    return {"success": True, "message": response.get("message", f"Focused {title}"), "notify": False}
-                else:
-                    return {"success": False, "message": response.get("message", f"Could not focus {title}"), "notify": False}
-            else:
-                return {"success": False, "message": result.error or f"Could not focus {title}", "notify": False}
-        except Exception as e:
-            logger.error(f"Error focusing window: {e}")
-            return {"success": False, "message": str(e), "notify": False}
-    
-    async def mcp_hotkey(self, keys: str) -> Dict[str, Any]:
-        """Press hotkey combination using MCP"""
-        try:
-            if not self.mcp_client:
-                return {"success": False, "message": "MCP client not available", "notify": False}
-            
-            import json
-            
-            result = await self.mcp_client.call_tool("hotkey", key_combo=keys)
-            
-            if result.success and result.data:
-                response = json.loads(result.data)
-                if response.get("success"):
-                    return {"success": True, "message": response.get("message", f"Pressed {keys}"), "notify": False}
-                else:
-                    return {"success": False, "message": response.get("message", f"Could not press {keys}"), "notify": False}
-            else:
-                return {"success": False, "message": result.error or f"Could not press {keys}", "notify": False}
-        except Exception as e:
-            logger.error(f"Error pressing hotkey: {e}")
-            return {"success": False, "message": str(e), "notify": False}
-    
-    async def mcp_type_text(self, text: str) -> Dict[str, Any]:
-        """Type text using MCP"""
-        try:
-            if not self.mcp_client:
-                return {"success": False, "message": "MCP client not available", "notify": False}
-            
-            import json
-            
-            result = await self.mcp_client.call_tool("type_text", text=text)
-            
-            if result.success and result.data:
-                response = json.loads(result.data)
-                if response.get("success"):
-                    return {"success": True, "message": response.get("message", "Typed text"), "notify": False}
-                else:
-                    return {"success": False, "message": response.get("message", "Could not type text"), "notify": False}
-            else:
-                return {"success": False, "message": result.error or "Could not type text", "notify": False}
-        except Exception as e:
-            logger.error(f"Error typing text: {e}")
-            return {"success": False, "message": str(e), "notify": False}
-    
-    async def mcp_press_key(self, key: str) -> Dict[str, Any]:
-        """Press a single key using MCP"""
-        try:
-            if not self.mcp_client:
-                return {"success": False, "message": "MCP client not available", "notify": False}
-            
-            import json
-            
-            result = await self.mcp_client.call_tool("press_key", key=key)
-            
-            if result.success and result.data:
-                response = json.loads(result.data)
-                if response.get("success"):
-                    return {"success": True, "message": response.get("message", f"Pressed {key}"), "notify": False}
-                else:
-                    return {"success": False, "message": response.get("message", f"Could not press {key}"), "notify": False}
-            else:
-                return {"success": False, "message": result.error or f"Could not press {key}", "notify": False}
-        except Exception as e:
-            logger.error(f"Error pressing key: {e}")
-            return {"success": False, "message": str(e), "notify": False}
-    
-    async def mcp_click(self, x: int, y: int) -> Dict[str, Any]:
-        """Click at coordinates using MCP"""
-        try:
-            if not self.mcp_client:
-                return {"success": False, "message": "MCP client not available", "notify": False}
-            
-            import json
-            
-            result = await self.mcp_client.call_tool("click_at_coordinates", x=x, y=y)
-            
-            if result.success and result.data:
-                response = json.loads(result.data)
-                if response.get("success"):
-                    return {"success": True, "message": response.get("message", f"Clicked at ({x}, {y})"), "notify": False}
-                else:
-                    return {"success": False, "message": response.get("message", "Could not click"), "notify": False}
-            else:
-                return {"success": False, "message": result.error or "Could not click", "notify": False}
-        except Exception as e:
-            logger.error(f"Error clicking: {e}")
-            return {"success": False, "message": str(e), "notify": False}
-
     async def call_agent(self, agent_name: str, task: str, params: Dict[str, Any]) -> Dict[str, Any]:
         """Call a specialized agent to handle complex tasks"""
         try:

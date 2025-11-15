@@ -23,8 +23,8 @@ from backend.agents import (
     PersonalWebAgent,
     PersonalProductivityAgent
 )
-from backend.mcp_client import PRISMMCPClient, mcp_client
 from backend.live_voice import LiveVoiceManager
+from backend.core.interaction_service import InteractionService
 
 
 class SystemState(Enum):
@@ -47,25 +47,21 @@ class PRISMCoordinator:
     def __init__(self):
         self.state = SystemState.IDLE
         self.running = False
-        self.processing_lock = asyncio.Lock()  # Prevent concurrent processing
         
         # Initialize subsystems
         self.voice = VoicePipeline()
         self.ai = AIEngine()
         self.memory = MemorySystem()
         self.websocket = WebSocketBridge()
+        self.system_control = SystemControl()
+        
+        # Initialize interaction service (core business logic)
+        self.interaction_service: Optional[InteractionService] = None
         
         # Initialize agent system
         self.agent_registry = AgentRegistry()
         self.agent_coordinator: Optional[AgentCoordinator] = None
         self.agents_enabled = True  # Toggle for agent-based processing
-        
-        # Initialize SystemControl with agent coordinator (will be set later)
-        self.system_control = SystemControl()
-        
-        # Initialize MCP client for screen visibility and app control
-        self.mcp_client: Optional[PRISMMCPClient] = None
-        self.mcp_enabled = True  # Toggle for MCP-based operations
         
         # Initialize Live Voice manager
         self.live_voice: Optional[LiveVoiceManager] = None
@@ -74,15 +70,6 @@ class PRISMCoordinator:
         # Event callbacks for UI
         self.state_callbacks: Dict[SystemState, list] = {state: [] for state in SystemState}
         self.message_callback: Optional[Callable] = None
-        
-        # Conversation context
-        self.current_conversation_id: Optional[str] = None
-        self.conversation_context: list = []
-        
-        # System context cache (to avoid redundant MCP calls)
-        self._system_context_cache: Optional[Dict[str, Any]] = None
-        self._context_cache_time: Optional[datetime] = None
-        self._context_cache_ttl: int = 5  # Cache TTL in seconds
         
         logger.info("PRISM Coordinator initialized")
 
@@ -101,9 +88,14 @@ class PRISMCoordinator:
             # Initialize agent system
             await self._initialize_agents()
             
-            # Initialize MCP client
-            if self.mcp_enabled:
-                await self._initialize_mcp_client()
+            # Initialize interaction service
+            self.interaction_service = InteractionService(
+                ai_engine=self.ai,
+                memory_system=self.memory,
+                voice_pipeline=self.voice,
+                system_control=self.system_control,
+                ui_message_sender=self._send_message
+            )
             
             # Register callbacks
             self.voice.on_wake_word = self._on_wake_word_detected
@@ -139,9 +131,6 @@ class PRISMCoordinator:
             if self.agent_registry:
                 await self.agent_registry.shutdown_all()
             
-            # Shutdown MCP client
-            if self.mcp_client:
-                await self.mcp_client.shutdown()
             
             await self.voice.shutdown()
             await self.ai.shutdown()
@@ -161,28 +150,17 @@ class PRISMCoordinator:
     async def process_text_input(self, text: str):
         """Process text input directly (without voice)"""
         logger.info(f"Processing text input: {text}")
+        self._set_state(SystemState.PROCESSING)
         
-        # Check if already processing
-        if self.processing_lock.locked():
-            logger.warning("Already processing a message, queuing this one")
-            # Queue it for later or notify user
-            self._send_message({
-                "type": "info",
-                "message": "Please wait, still processing previous request..."
-            })
-            return
-        
-        logger.info(f"Acquiring processing lock...")
-        async with self.processing_lock:
-            logger.info(f"Processing lock acquired, processing input: {text}")
-            try:
-                await self._process_user_input(text, input_method="text")
-                logger.info(f"Completed processing input: {text}")
-            except Exception as e:
-                logger.error(f"Error in process_text_input: {e}", exc_info=True)
-                raise
-            finally:
-                logger.info(f"Processing lock released for: {text}")
+        try:
+            await self.interaction_service.process_text_input(text)
+        except Exception as e:
+            logger.error(f"Error in process_text_input: {e}", exc_info=True)
+            self._set_state(SystemState.ERROR)
+            # Return to idle after brief delay
+            await asyncio.sleep(1.0)
+        finally:
+            self._set_state(SystemState.IDLE)
 
     async def execute_hotkey_action(self, hotkey: str):
         """Handle keyboard shortcut activation"""
@@ -208,14 +186,14 @@ class PRISMCoordinator:
                     logger.warning("Received empty text in process_text message")
             
             elif msg_type == "clear_conversation":
-                self.clear_conversation_context()
+                self.interaction_service.clear_conversation_context()
                 self._send_message({
                     "type": "conversation_cleared",
                     "timestamp": datetime.now().isoformat()
                 })
             
             elif msg_type == "get_history":
-                history = await self.get_conversation_history()
+                history = await self.interaction_service.get_conversation_history()
                 self._send_message({
                     "type": "conversation_history",
                     "history": history
@@ -269,18 +247,17 @@ class PRISMCoordinator:
 
     async def _on_speech_recognized(self, text: str):
         """Handle recognized speech"""
-        if not text:
-            logger.warning("Empty text received from speech recognition")
-            self._set_state(SystemState.IDLE)
-            self._send_message({
-                "type": "listening_timeout",
-                "message": "No speech detected",
-                "timestamp": datetime.now().isoformat()
-            })
-            return
-        
         logger.info(f"Speech recognized: {text}")
-        await self._process_user_input(text, input_method="voice")
+        self._set_state(SystemState.PROCESSING)
+        
+        try:
+            await self.interaction_service.process_voice_input(text)
+        except Exception as e:
+            logger.error(f"Error processing voice input: {e}", exc_info=True)
+            self._set_state(SystemState.ERROR)
+            await asyncio.sleep(1.0)
+        finally:
+            self._set_state(SystemState.IDLE)
 
     async def _on_audio_level(self, level: float):
         """Handle audio level updates for visualization"""
@@ -291,247 +268,6 @@ class PRISMCoordinator:
                 "level": level
             })
 
-    # ==================== Core Processing ====================
-
-    async def _process_user_input(self, user_input: str, input_method: str = "voice"):
-        """
-        Process user input through the AI engine and execute actions
-        """
-        self._set_state(SystemState.PROCESSING)
-        
-        try:
-            # Store user message
-            if config.privacy.store_conversations:
-                await self.memory.store_interaction({
-                    "role": "user",
-                    "content": user_input,
-                    "timestamp": datetime.now().isoformat(),
-                    "input_method": input_method
-                })
-            
-            # Add to conversation context
-            self.conversation_context.append({
-                "role": "user",
-                "content": user_input
-            })
-            
-            # Send to UI
-            self._send_message({
-                "type": "user_message",
-                "content": user_input,
-                "timestamp": datetime.now().isoformat()
-            })
-            
-            # AI-First Approach: Let LLM decide everything from the start
-            logger.info("Using AI-first approach - LLM will decide routing and actions")
-            
-            # Always start with AI to determine the best approach
-            # AI will decide if it needs agents, MCP tools, or can handle directly
-            response = await self.ai.process_input(
-                user_input=user_input,
-                conversation_history=self.conversation_context,
-                system_context=await self._get_system_context(include_mcp=False)  # Start lightweight, AI will request MCP if needed
-            )
-            
-            # If the response includes actions, we'll handle the response in _execute_actions
-            # to avoid duplicate notifications
-            if not response.requires_action or not response.actions:
-                # Add response to context
-                self.conversation_context.append({
-                    "role": "assistant",
-                    "content": response.text
-                })
-                
-                # Trim context to prevent unbounded growth
-                self._trim_conversation_context()
-                
-                # Store assistant response
-                if config.privacy.store_conversations:
-                    await self.memory.store_interaction({
-                        "role": "assistant",
-                        "content": response.text,
-                        "timestamp": datetime.now().isoformat(),
-                        "requires_action": response.requires_action
-                    })
-            
-            # Handle response (this will handle both text and actions)
-            await self._handle_response(response)
-            
-        except Exception as e:
-            logger.error(f"Error processing input: {e}", exc_info=True)
-            
-            # Provide more specific error messages based on error type
-            if "UnicodeEncodeError" in str(e):
-                error_message = "I had trouble processing that message due to special characters. Could you try rephrasing?"
-            elif "ConnectionError" in str(e) or "websocket" in str(e).lower():
-                error_message = "I'm having connection issues. Let me try to reconnect..."
-                # Attempt to reconnect WebSocket
-                try:
-                    await self.websocket._connect_with_retry()
-                except:
-                    pass
-            elif "timeout" in str(e).lower():
-                error_message = "That request took too long to process. Please try a simpler command."
-            else:
-                error_message = "I encountered an error processing your request. Please try again."
-            
-            await self._deliver_response(error_message)
-            self._set_state(SystemState.ERROR)
-            
-            # Return to idle after brief delay with exponential backoff
-            await asyncio.sleep(min(2.0, 0.5 * (getattr(self, '_error_count', 0) + 1)))
-            self._error_count = getattr(self, '_error_count', 0) + 1
-            if self._error_count > 5:
-                self._error_count = 0  # Reset after 5 errors
-            
-            self._set_state(SystemState.IDLE)
-
-    async def _handle_response(self, response):
-        """Handle AI response (text output and/or actions)"""
-        try:
-            self._set_state(SystemState.RESPONDING)
-            
-            # Only deliver the text response if there are no actions to execute
-            # or if the response text is not just a description of the actions
-            if not response.requires_action or not response.actions:
-                await self._deliver_response(response.text, wait_for_speech=False)
-            
-            # Execute actions if required
-            if response.requires_action and response.actions:
-                await self._execute_actions(response.actions, response.text)
-        finally:
-            # Always return to idle, even if there's an error
-            self._set_state(SystemState.IDLE)
-
-    async def _deliver_response(self, text: str, wait_for_speech: bool = True):
-        """Deliver response through voice and UI"""
-        # Send to UI
-        self._send_message({
-            "type": "assistant_message",
-            "content": text,
-            "timestamp": datetime.now().isoformat()
-        })
-        
-        # Speak response if voice feedback enabled
-        if config.voice.enable_voice_feedback:
-            if wait_for_speech:
-                await self.voice.speak(text)
-            else:
-                # Fire and forget - don't block action execution
-                asyncio.create_task(self.voice.speak(text))
-
-    async def _execute_actions(self, actions: list, action_description: str = None):
-        """Execute system actions
-        
-        Args:
-            actions: List of actions to execute
-            action_description: Optional description of the actions being taken
-        """
-        if not actions:
-            logger.warning("No actions to execute")
-            return
-        
-        self._set_state(SystemState.EXECUTING)
-        logger.info(f"Executing {len(actions)} action(s): {[a.get('type') for a in actions]}")
-        
-        # If we have an action description, deliver it as a response
-        if action_description:
-            await self._deliver_response(action_description, wait_for_speech=False)
-        
-        for action in actions:
-            try:
-                action_type = action.get('type', 'unknown')
-                logger.info(f"Executing action: {action_type} with parameters: {action.get('parameters', {})}")
-                
-                result = await self.system_control.execute_action(action)
-                
-                logger.info(f"Action result: success={result.get('success')}, message={result.get('message')}")
-                
-                # Add delays after specific actions to allow UI to respond
-                if action_type == 'open_application' and result.get('success', False):
-                    logger.debug("Waiting 1.5s for application window to appear...")
-                    await asyncio.sleep(1.5)
-                elif action_type in ['mcp_type_text', 'mcp_press_key', 'mcp_hotkey']:
-                    # Short delay after keyboard actions for UI to process
-                    await asyncio.sleep(0.4)
-                elif action_type == 'mcp_focus_window':
-                    # Delay after focusing window
-                    await asyncio.sleep(0.3)
-                elif action_type == 'mcp_click':
-                    # Delay after clicking
-                    await asyncio.sleep(0.3)
-                
-                # Notify user of action result if requested
-                if result.get("notify", False):
-                    await self._deliver_response(result.get("message", "Action completed"))
-                elif not result.get("success", False):
-                    # Always notify on failure with recovery suggestions
-                    error_msg = result.get("message", "Action failed")
-                    if "window" in error_msg.lower() and "not found" in error_msg.lower():
-                        error_msg += ". The application might not be open or the window title might be different."
-                    elif "permission" in error_msg.lower() or "access" in error_msg.lower():
-                        error_msg += ". You might need to run as administrator or grant permissions."
-                    await self._deliver_response(error_msg)
-                    
-            except Exception as e:
-                logger.error(f"Error executing action {action.get('type', 'unknown')}: {e}", exc_info=True)
-                
-                # Provide more helpful error messages
-                error_type = action.get('type', 'unknown')
-                if "timeout" in str(e).lower():
-                    error_msg = f"The {error_type} action timed out. The system might be busy."
-                elif "permission" in str(e).lower() or "access" in str(e).lower():
-                    error_msg = f"I don't have permission to perform the {error_type} action."
-                elif "not found" in str(e).lower():
-                    error_msg = f"I couldn't find the target for the {error_type} action."
-                else:
-                    error_msg = f"I couldn't complete the {error_type} action: {str(e)}"
-                
-                await self._deliver_response(error_msg)
-                
-                # Continue with other actions instead of stopping completely
-                continue
-
-    async def _get_system_context(self, force_refresh: bool = False, include_mcp: bool = True) -> Dict[str, Any]:
-        """Get current system context for AI processing with intelligent caching"""
-        # Check cache validity
-        now = datetime.now()
-        if not force_refresh and self._system_context_cache and self._context_cache_time:
-            cache_age = (now - self._context_cache_time).total_seconds()
-            if cache_age < self._context_cache_ttl:
-                logger.debug(f"Using cached system context (age: {cache_age:.1f}s)")
-                return self._system_context_cache
-        
-        # Build fresh context
-        context = {
-            "timestamp": now.isoformat(),
-            "state": self.state.value,
-            "running_applications": self.system_control.get_running_applications()[:10],
-            "current_directory": self.system_control.get_current_directory(),
-        }
-        
-        # Add MCP context only when needed (expensive operation)
-        # Skip MCP context for simple conversational tasks to improve performance
-        if include_mcp and self.mcp_enabled and self.mcp_client:
-            try:
-                mcp_context = await self.mcp_client.get_screen_context()
-                if mcp_context.success:
-                    context["screen_context"] = mcp_context.data
-                    context["mcp_available"] = True
-                else:
-                    context["mcp_available"] = False
-                    logger.warning(f"MCP context failed: {mcp_context.error}")
-            except Exception as e:
-                logger.error(f"Error getting MCP context: {e}")
-                context["mcp_available"] = False
-        else:
-            context["mcp_available"] = False
-        
-        # Update cache
-        self._system_context_cache = context
-        self._context_cache_time = now
-        
-        return context
 
     # ==================== State Management ====================
 
@@ -592,8 +328,8 @@ class PRISMCoordinator:
             await self.agent_registry.register(web_agent)
             await self.agent_registry.register(productivity_agent)
             
-            # Create coordinator
-            self.agent_coordinator = AgentCoordinator(self.agent_registry)
+            # Create coordinator with reference to self
+            self.agent_coordinator = AgentCoordinator(self.agent_registry, main_coordinator=self)
             
             # Update SystemControl with agent coordinator for delegation
             self.system_control.agent_coordinator = self.agent_coordinator
@@ -604,28 +340,6 @@ class PRISMCoordinator:
         except Exception as e:
             logger.error(f"Failed to initialize agents: {str(e)}")
             self.agents_enabled = False
-    
-    async def _initialize_mcp_client(self):
-        """Initialize MCP client for screen visibility and app control"""
-        try:
-            logger.info("Initializing MCP client...")
-            
-            # Create MCP client instance
-            self.mcp_client = PRISMMCPClient()
-            
-            # Initialize connection to Windows MCP server
-            await self.mcp_client.initialize()
-            
-            # Update SystemControl with MCP client reference
-            self.system_control.mcp_client = self.mcp_client
-            
-            # Get available tools
-            tools = await self.mcp_client.get_available_tools()
-            logger.success(f"MCP client initialized with {len(tools)} tools")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize MCP client: {str(e)}")
-            self.mcp_enabled = False
     
     async def _try_agent_execution(self, user_input: str) -> Optional[Dict[str, Any]]:
         """
@@ -656,8 +370,8 @@ class PRISMCoordinator:
             response = await self.agent_coordinator.execute_task_with_intent(
                 intent_data=intent_data,
                 context={
-                    'conversation_history': self.conversation_context,
-                    'system_context': await self._get_system_context()
+                    'conversation_history': self.interaction_service.conversation_context,
+                    'system_context': await self.interaction_service._get_system_context()
                 }
             )
             
@@ -688,147 +402,11 @@ class PRISMCoordinator:
             'enabled': self.agents_enabled,
             'statistics': stats,
             'health': health,
-            'mcp_available': self.mcp_enabled and self.mcp_client is not None,
-            'mcp_tools': len(await self.mcp_client.get_available_tools()) if self.mcp_enabled and self.mcp_client else 0
         }
 
-    async def handle_mcp_query(self, query: str) -> Optional[str]:
-        """
-        Handle MCP-specific queries using LLM for proper intent parsing
-        
-        Args:
-            query: User query about screen, applications, or automation tasks
-            
-        Returns:
-            Response string if handled, None if should fallback to normal processing
-        """
-        if not self.mcp_enabled or not self.mcp_client:
-            return None
-        
-        try:
-            query_lower = query.lower()
-            
-            # Check if this is a contextual screen query
-            screen_keywords = ["what's on my screen", "what is on my screen", "what am i doing", "show me", "screen", "windows", "applications"]
-            if any(keyword in query_lower for keyword in screen_keywords):
-                logger.info("Handling contextual screen visibility query with MCP")
-                
-                # Get contextual screen analysis
-                result = await self.mcp_client.get_contextual_screen_analysis()
-                
-                if result.success:
-                    data = result.data
-                    summary = data.get("summary", "")
-                    
-                    # Format contextual response
-                    response = f"{summary}\n\n"
-                    
-                    # Add specific window details if requested
-                    if "details" in query_lower or "more" in query_lower:
-                        active_windows = data.get("active_windows", [])
-                        if active_windows:
-                            response += "**Active Windows Details:**\n"
-                            for window in active_windows[:5]:
-                                title = window.get("title", "Unknown")
-                                size = f"{window.get('size', {}).get('width', 0)}x{window.get('size', {}).get('height', 0)}"
-                                response += f"• {title} ({size})\n"
-                    
-                    return response
-                else:
-                    logger.error(f"MCP contextual analysis failed: {result.error}")
-                    return None
-            
-            # Check if this is a PURE app control query - USE LLM FOR PROPER PARSING
-            # Only handle if it's JUST app control, not multi-task queries
-            app_control_keywords = ["close", "minimize", "maximize", "focus", "switch to"]
-            multi_task_indicators = ["and", "then", "also", "how much", "tell me", "let me know", "show me"]
-            
-            is_app_control = any(keyword in query_lower for keyword in app_control_keywords)
-            is_multi_task = any(indicator in query_lower for indicator in multi_task_indicators)
-            
-            if is_app_control and not is_multi_task:
-                logger.info("Handling pure app control query with MCP - using LLM for intent parsing")
-                
-                # Use AI engine to properly parse the intent
-                intent_data = await self.ai.parse_app_control_intent(query)
-                
-                if not intent_data or intent_data.get('confidence', 0) < 0.6:
-                    logger.warning(f"Low confidence in app control intent: {intent_data}")
-                    return None
-                
-                action = intent_data.get('action')  # close, minimize, maximize, focus
-                app_name = intent_data.get('app_name')
-                
-                if not app_name:
-                    logger.warning("Could not extract app name from query")
-                    return None
-                
-                # Normalize app name - remove "app", "browser", "window" suffixes
-                app_name_normalized = app_name.lower()
-                for suffix in [' app', ' browser', ' window', ' application']:
-                    app_name_normalized = app_name_normalized.replace(suffix, '')
-                app_name_normalized = app_name_normalized.strip()
-                
-                # CRITICAL: Self-protection - never close PRISM itself
-                if any(prism_name in app_name_normalized for prism_name in ['prism', 'electron']):
-                    logger.warning(f"Blocked attempt to close PRISM itself via '{app_name}'")
-                    return "I can't close myself - that would terminate our conversation. Did you mean a different application?"
-                
-                # Execute the action with normalized name
-                if action == "close":
-                    result = await self.mcp_client.close_application_smart(app_name_normalized)
-                    if result.success:
-                        return f"Successfully closed {app_name}"
-                    else:
-                        return f"Couldn't close {app_name}: {result.error}"
-                
-                elif action == "focus" or action == "switch":
-                    result = await self.mcp_client.call_tool("focus_window", title=app_name_normalized)
-                    if result.success:
-                        return f"Switched to {app_name}"
-                    else:
-                        return f"Couldn't find window: {app_name}"
-                
-                elif action == "minimize":
-                    result = await self.mcp_client.call_tool("minimize_window", title=app_name_normalized)
-                    if result.success:
-                        return f"Minimized {app_name}"
-                    else:
-                        return f"Couldn't minimize {app_name}"
-                
-                elif action == "maximize":
-                    result = await self.mcp_client.call_tool("maximize_window", title=app_name_normalized)
-                    if result.success:
-                        return f"Maximized {app_name}"
-                    else:
-                        return f"Couldn't maximize {app_name}"
-            
-            return None
-            
-        except Exception as e:
-            logger.error(f"Error handling MCP query: {e}", exc_info=True)
-            return None
-    
     # ==================== Context Management ====================
     
-    # Removed manual conversational detection - AI handles all routing decisions
-
-    def clear_conversation_context(self):
-        """Clear current conversation context"""
-        self.conversation_context = []
-        self.current_conversation_id = None
-        logger.info("Conversation context cleared")
-    
-    def _trim_conversation_context(self, max_messages: int = 20):
-        """Trim conversation context to prevent unbounded growth"""
-        if len(self.conversation_context) > max_messages:
-            # Keep the most recent messages
-            self.conversation_context = self.conversation_context[-max_messages:]
-            logger.debug(f"Trimmed conversation context to {max_messages} messages")
-
-    async def get_conversation_history(self, limit: int = 20):
-        """Get recent conversation history"""
-        return await self.memory.get_recent_interactions(limit=limit)
+    # Context management moved to InteractionService
     
     # ==================== Live Voice Methods ====================
     

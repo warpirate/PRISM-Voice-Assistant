@@ -17,8 +17,6 @@ pyautogui==0.9.54             # GUI automation
 pywinauto==0.6.9              # Windows UI automation
 uiautomation==2.0.29          # Windows UI Automation API
 
-# Model Context Protocol (MCP)
-mcp>=1.19.0                   # MCP Python SDK for screen visibility and app control
 
 # Web & Information Retrieval
 requests==2.31.0              # HTTP requests
@@ -46,3 +44,4 @@ python-Levenshtein==0.25.1    # Faster fuzzy matching (optional but recommended)
 Pillow>=10.0.0                # Image processing
 mss>=9.0.0                    # Fast screenshot capture
 opencv-python>=4.8.0          # Computer vision (optional, for advanced features)
+

@@ -51,7 +51,7 @@ PRISM (Personal Response Interface for System Management) is a sophisticated voi
               │                           │
          ┌────▼────┐              ┌──────▼──────┐
          │ Gemini  │              │   Windows   │
-         │   API   │              │  MCP Server │
+         │   API   │              │   System    │
          └─────────┘              └─────────────┘
 ```
 
@@ -164,7 +164,7 @@ ACTION: {"type": "action_type", "parameters": {...}}
 - File operations (create, search, open)
 - Web search
 - System commands (with safety checks)
-- MCP integration for UI automation
+- System integration for UI automation
 
 **Application Discovery**:
 - Scans Start Menu, Program Files
@@ -172,10 +172,10 @@ ACTION: {"type": "action_type", "parameters": {...}}
 - Alias support for common variations
 - Confidence scoring for matches
 
-**MCP Actions**:
-- `mcp_focus_window` - Focus application window
-- `mcp_hotkey` - Press keyboard shortcuts
-- `mcp_type_text` - Type text input
+**System Actions**:
+- `focus_window` - Focus application window
+- `hotkey` - Press keyboard shortcuts
+- `type_text` - Type text input
 - `mcp_press_key` - Press single key
 - `mcp_click` - Click at coordinates
 
@@ -367,7 +367,7 @@ User Input → Intent Parsing (LLM) → Agent Coordinator
         ↓
 3. Store in Memory (if enabled)
         ↓
-4. Try MCP Query Handling (screen context)
+4. Try System Query Handling (screen context)
         ↓
 5. Try Agent Execution
    - Parse intent with AI Engine
@@ -381,7 +381,7 @@ User Input → Intent Parsing (LLM) → Agent Coordinator
         ↓
 7. Execute Actions (if required)
    - System Control operations
-   - MCP automation
+   - System automation
         ↓
 8. Deliver Response
    - Send to UI via WebSocket
@@ -508,9 +508,9 @@ voice_config=VoiceConfig(
 )
 ```
 
-### Windows MCP Server
+### System Control
 
-**Purpose**: UI automation and screen context
+**Purpose**: UI automation and system context
 
 **Capabilities**:
 - Window management (focus, close, minimize)
@@ -523,7 +523,7 @@ voice_config=VoiceConfig(
 
 ### Context Caching
 
-System context is cached for 5 seconds to avoid redundant MCP calls:
+System context is cached for 5 seconds to avoid redundant system calls:
 ```python
 _system_context_cache: Optional[Dict[str, Any]]
 _context_cache_time: Optional[datetime]

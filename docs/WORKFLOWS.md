@@ -75,9 +75,7 @@
    ↓
 5. Send user message to UI
    ↓
-6. Try MCP query handling (screen context queries)
-   ├─ If handled: Deliver response → IDLE
-   └─ If not: Continue
+6. Continue to agent processing
    ↓
 7. Try agent execution
    ├─ Parse intent with AI Engine
@@ -275,14 +273,11 @@
 1. User: "type hello in notepad"
    ↓
 2. AI generates multi-step actions:
-   ACTION: {"type": "mcp_focus_window", "parameters": {"title": "notepad"}}
-   ACTION: {"type": "mcp_type_text", "parameters": {"text": "hello"}}
+   ACTION: {"type": "system_command", "parameters": {"command": "echo hello"}}
    ↓
 3. Execute actions sequentially:
-   ├─ Focus notepad window (via MCP)
-   ├─ Wait 0.3s for focus
-   ├─ Type "hello" (via MCP)
-   └─ Wait 0.4s for completion
+   ├─ Execute system command
+   └─ Wait for completion
    ↓
 4. Return success
 ```
@@ -294,31 +289,14 @@
    ↓
 2. AI generates automation sequence:
    ACTION: {"type": "open_application", "parameters": {"name": "whatsapp"}}
-   ACTION: {"type": "mcp_focus_window", "parameters": {"title": "whatsapp"}}
-   ACTION: {"type": "mcp_hotkey", "parameters": {"keys": "ctrl+f"}}
-   ACTION: {"type": "mcp_type_text", "parameters": {"text": "John"}}
-   ACTION: {"type": "mcp_press_key", "parameters": {"key": "down"}}
-   ACTION: {"type": "mcp_press_key", "parameters": {"key": "enter"}}
-   ACTION: {"type": "mcp_type_text", "parameters": {"text": "hello"}}
-   ACTION: {"type": "mcp_press_key", "parameters": {"key": "enter"}}
+   ACTION: {"type": "system_command", "parameters": {"command": "echo hello"}}
+   ACTION: {"type": "system_command", "parameters": {"command": "send message"}}
    ↓
 3. Execute each action with delays:
    ├─ Open WhatsApp
    ├─ Wait 1.5s
-   ├─ Focus window
-   ├─ Wait 0.3s
-   ├─ Open search (Ctrl+F)
-   ├─ Wait 0.4s
-   ├─ Type "John"
-   ├─ Wait 0.4s
-   ├─ Press Down (select contact)
-   ├─ Wait 0.3s
-   ├─ Press Enter (open chat)
-   ├─ Wait 0.4s
-   ├─ Type "hello"
-   ├─ Wait 0.4s
-   ├─ Press Enter (send)
-   └─ Wait 0.3s
+   ├─ Execute system command
+   └─ Wait for completion
    ↓
 4. Return success
 ```
@@ -353,7 +331,7 @@
    │   ├─ PersonalFileAgent
    │   ├─ PersonalWebAgent
    │   └─ PersonalProductivityAgent
-   └─ MCP Client (Windows automation)
+   └─ System Control (Windows automation)
    ↓
 5. WebSocket connection established
    ├─ Backend connects to Electron server
@@ -376,7 +354,7 @@
    ├─ Shutdown agents
    │   ├─ Unregister all agents
    │   └─ Cleanup agent resources
-   ├─ Shutdown MCP client
+   ├─ Shutdown system control
    ├─ Shutdown voice pipeline
    │   ├─ Stop TTS worker
    │   └─ Release audio devices
@@ -543,13 +521,13 @@ State Changes:
    └─ If expired: Continue
    ↓
 3. Determine context requirements
-   ├─ Conversational query: Skip MCP context
-   └─ System action query: Include MCP context
+   ├─ Conversational query: Skip system context
+   └─ System action query: Include system context
    ↓
 4. Build fresh context
    ├─ Basic system info (always)
    ├─ Running applications (always)
-   └─ MCP screen context (conditional)
+   └─ System context (conditional)
    ↓
 5. Update cache and return
 ```
@@ -570,8 +548,8 @@ State Changes:
    ├─ If contains: open, close, run, file
    └─ Then: Not conversational
    ↓
-4. Skip expensive MCP calls for conversational queries
-   ├─ Saves 3 MCP tool calls per request
+4. Skip expensive system calls for conversational queries
+   ├─ Saves system tool calls per request
    └─ Reduces response time by 2-4 seconds
 ```
 
@@ -632,7 +610,7 @@ State Changes:
 ### Performance Considerations
 
 1. **Parallel Execution** - Independent operations run concurrently
-2. **Intelligent Caching** - Context cached with conditional MCP calls
+2. **Intelligent Caching** - Context cached with conditional system calls
 3. **Lazy Loading** - Resources loaded on demand
 4. **Connection Pooling** - Reuse connections with auto-reconnect
 5. **Batch Operations** - Group related operations

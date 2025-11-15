@@ -24,15 +24,17 @@ class AgentCoordinator:
     - Manage fallbacks and error recovery
     """
     
-    def __init__(self, registry: AgentRegistry):
+    def __init__(self, registry: AgentRegistry, main_coordinator=None):
         """
         Initialize coordinator
         
         Args:
             registry: Agent registry instance
+            main_coordinator: Reference to main PRISM coordinator
         """
         self.registry = registry
         self.task_history: List[Dict[str, Any]] = []
+        self._main_coordinator = main_coordinator
         
         logger.info("AgentCoordinator initialized")
     

@@ -433,18 +433,12 @@ class PersonalWebAgent(BaseAgent):
                 search_content += f"   Source: {result['url']}\n\n"
             
             # Create summarization prompt
-            summary_prompt = f"""Based on the following search results, provide a clear, concise, and informative summary that directly answers the user's query about '{query}'. 
-
-Focus on:
-1. Key facts and current information
-2. Important numbers, dates, or statistics if relevant
-3. Main insights that answer the user's question
-4. Present the information in a conversational, helpful tone
+            summary_prompt = f"""Summarize these search results for query: '{query}'
 
 Search Results:
 {search_content}
 
-Provide a well-structured summary that gives the user exactly what they're looking for:"""
+Provide a clear, informative summary with key facts and insights:"""
             
             # Get AI summary
             ai_response = await ai_engine.process_input(summary_prompt)
